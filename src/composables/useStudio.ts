@@ -1,13 +1,11 @@
 import { reactive, ref, computed } from 'vue'
+import { cutout, resolveAssetUrl } from '@/api/client'
+import { styles, type Style } from '@/data/styles'
+import { fallbackTemplate, templatesForStyle, type PosterTemplate } from '@/data/templates'
+import { exportPoster, type PosterData } from '@/utils/renderPoster'
 
-export interface Style {
-  key: string
-  name: string
-  en: string
-  desc: string
-  bg: string
-  fg: string
-}
+export { styles }
+export type { Style }
 
 export const steps = [
   { no: '01', key: 'upload', title: '上传商品', en: 'Upload' },
@@ -16,21 +14,17 @@ export const steps = [
   { no: '04', key: 'generate', title: '生成作品', en: 'Generate' },
 ]
 
-export const styles: Style[] = [
-  { key: 'natural', name: '自然', en: 'Natural', desc: '清新、有机、贴近自然', bg: '#7b8a72', fg: '#f6f3ec' },
-  { key: 'minimal', name: '极简', en: 'Minimal', desc: '留白、克制、干净', bg: '#efe9de', fg: '#2b2723' },
-  { key: 'retro', name: '复古', en: 'Retro', desc: '怀旧、温暖、有年代感', bg: '#a87e52', fg: '#f6f3ec' },
-  { key: 'festive', name: '节日', en: 'Festive', desc: '喜庆、热闹、有氛围', bg: '#c08b62', fg: '#fff8ee' },
-  { key: 'tech', name: '科技', en: 'Tech', desc: '简洁、未来、理性', bg: '#4e5c46', fg: '#f6f3ec' },
-]
-
-export const genSteps = ['识别商品主体', '寻找视觉方向', '生成场景', '完成排版']
+/** 每一步都对应真实发生的事，别写成做不到的承诺 */
+export const genSteps = ['匹配版式', '套用配色', '排版文案', '渲染成图']
 
 const state = reactive({
   image: null as string | null,
+  /** 上传的原始图（本地 blob），抠图失败时回退用，也方便做前后对比 */
+  originalImage: null as string | null,
   imageName: '',
   removing: false,
   bgRemoved: false,
+  error: '',
   name: '',
   feature: '',
   vibe: '',
@@ -38,11 +32,17 @@ const state = reactive({
   generating: false,
   genStep: -1,
   generated: false,
+  /** 生成结果：当前风格下的全部版式 */
+  variants: [] as PosterTemplate[],
+  activeVariant: 0,
+  downloading: false,
 })
 
 const step = ref(0)
 
 let timers: ReturnType<typeof setTimeout>[] = []
+/** 抠图请求序号：连续换图时用来丢弃过期响应 */
+let cutoutSeq = 0
 
 function clearTimers() {
   timers.forEach((t) => clearTimeout(t))
@@ -51,6 +51,25 @@ function clearTimers() {
 
 const selectedStyle = computed<Style | null>(
   () => styles.find((s) => s.key === state.style) ?? null
+)
+
+/** 渲染用的数据：模板里的文案占位从这里取值 */
+const posterData = computed<PosterData>(() => ({
+  imageUrl: state.image,
+  name: state.name,
+  feature: state.feature,
+  vibe: state.vibe,
+  styleName: selectedStyle.value?.name ?? '',
+  styleEn: selectedStyle.value?.en ?? '',
+}))
+
+/** 步骤 1/2 的实时预览：选了风格就用该风格的第一套版式 */
+const previewTemplate = computed<PosterTemplate>(
+  () => templatesForStyle(state.style)[0] ?? fallbackTemplate(),
+)
+
+const activeTemplate = computed<PosterTemplate | null>(
+  () => state.variants[state.activeVariant] ?? null,
 )
 
 const canNext = computed(() => {
@@ -66,24 +85,60 @@ const canNext = computed(() => {
   }
 })
 
+/**
+ * 能否开始生成。
+ * 注意别复用 canNext：它是「进入下一步」的闸门，在第 3 步恒为 false，
+ * 早期版本的 startGenerate 用它做守卫，导致点「开始生成」直接静默 return。
+ */
+const canGenerate = computed(
+  () =>
+    !!state.image &&
+    state.bgRemoved &&
+    state.name.trim().length > 0 &&
+    !!state.style,
+)
+
+/** 释放上一张原图的 blob URL，避免内存泄漏 */
+function releaseOriginal() {
+  const prev = state.originalImage
+  if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev)
+  state.originalImage = null
+}
+
+/** 调后端抠图；seq 不匹配说明用户已经换了图，直接丢弃这次结果 */
+async function runCutout(file: File, seq: number) {
+  try {
+    const result = await cutout(file)
+    if (seq !== cutoutSeq) return
+    state.image = resolveAssetUrl(result.url)
+    state.bgRemoved = true
+  } catch (err) {
+    if (seq !== cutoutSeq) return
+    state.error = err instanceof Error ? err.message : '抠图失败，请重试'
+    state.bgRemoved = false
+    // 失败时退回原图，用户仍可继续往下走
+    state.image = state.originalImage
+  } finally {
+    if (seq === cutoutSeq) state.removing = false
+  }
+}
+
 function setFile(file: File) {
   if (!file || !file.type.startsWith('image/')) return
   clearTimers()
-  const reader = new FileReader()
-  reader.onload = () => {
-    state.image = reader.result as string
-    state.imageName = file.name
-    state.bgRemoved = false
-    state.removing = true
-    // 模拟抠图（前端演示，实际由后端 AI 完成）
-    timers.push(
-      setTimeout(() => {
-        state.removing = false
-        state.bgRemoved = true
-      }, 1200)
-    )
-  }
-  reader.readAsDataURL(file)
+  releaseOriginal()
+
+  // 先本地显示原图，等后端抠完再替换成结果
+  const localUrl = URL.createObjectURL(file)
+  state.originalImage = localUrl
+  state.image = localUrl
+  state.imageName = file.name
+  state.bgRemoved = false
+  state.error = ''
+  state.removing = true
+
+  cutoutSeq += 1
+  void runCutout(file, cutoutSeq)
 }
 
 function next() {
@@ -109,32 +164,78 @@ function goTo(i: number) {
 
 function selectStyle(key: string) {
   state.style = key
+  // 风格换了，之前生成的方案作废
+  state.variants = []
+  state.generated = false
+  state.activeVariant = 0
+}
+
+function selectVariant(index: number) {
+  if (index < 0 || index >= state.variants.length) return
+  state.activeVariant = index
 }
 
 function startGenerate() {
-  if (state.generating || !canNext.value) return
+  if (state.generating || !canGenerate.value) return
   state.generating = true
   state.generated = false
   state.genStep = 0
+  state.error = ''
   clearTimers()
-  timers.push(setTimeout(() => (state.genStep = 1), 700))
-  timers.push(setTimeout(() => (state.genStep = 2), 1500))
-  timers.push(setTimeout(() => (state.genStep = 3), 2300))
+
+  // 真正的生成是确定性的：取出该风格下的全部版式当作方案。
+  // 动画只是给过程感，并保证结果不会在用户眼前"闪"一下才出来。
+  state.variants = templatesForStyle(state.style)
+  state.activeVariant = 0
+
+  timers.push(setTimeout(() => (state.genStep = 1), 360))
+  timers.push(setTimeout(() => (state.genStep = 2), 720))
+  timers.push(setTimeout(() => (state.genStep = 3), 1080))
   timers.push(
     setTimeout(() => {
       state.generating = false
       state.generated = true
-    }, 3200)
+    }, 1400),
   )
+}
+
+/** 导出当前选中的方案：按导出尺寸重渲染一遍，保证清晰度 */
+async function downloadActive() {
+  const template = activeTemplate.value
+  if (!template || state.downloading) return
+  state.downloading = true
+  state.error = ''
+  try {
+    const blob = await exportPoster(template, posterData.value, 1500)
+    if (!blob) throw new Error('导出失败，请重试')
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${(state.name || '海报').trim()}-${template.id}.png`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    // 交给浏览器读完再释放
+    setTimeout(() => URL.revokeObjectURL(url), 10000)
+  } catch (err) {
+    state.error = err instanceof Error ? err.message : '导出失败'
+  } finally {
+    state.downloading = false
+  }
 }
 
 function reset() {
   clearTimers()
+  // 让在途的抠图响应失效，避免回来后又把图放上画布
+  cutoutSeq += 1
+  releaseOriginal()
   Object.assign(state, {
     image: null,
+    originalImage: null,
     imageName: '',
     removing: false,
     bgRemoved: false,
+    error: '',
     name: '',
     feature: '',
     vibe: '',
@@ -142,6 +243,9 @@ function reset() {
     generating: false,
     genStep: -1,
     generated: false,
+    variants: [],
+    activeVariant: 0,
+    downloading: false,
   })
   step.value = 0
 }
@@ -154,13 +258,19 @@ export function useStudio() {
     state,
     step,
     selectedStyle,
+    posterData,
+    previewTemplate,
+    activeTemplate,
     canNext,
+    canGenerate,
     setFile,
     next,
     back,
     goTo,
     selectStyle,
+    selectVariant,
     startGenerate,
+    downloadActive,
     reset,
   }
 }

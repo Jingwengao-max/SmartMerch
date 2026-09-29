@@ -9,11 +9,14 @@ const {
   styles,
   genSteps,
   canNext,
+  canGenerate,
   selectedStyle,
+  activeTemplate,
   next,
   back,
   selectStyle,
   startGenerate,
+  downloadActive,
   reset,
   setFile,
 } = useStudio()
@@ -65,6 +68,10 @@ function onPick(e: Event) {
         <div v-else-if="state.bgRemoved" class="flex items-center gap-2 text-sm text-sage">
           <span class="font-mono">✓</span> 已识别商品主体 · 背景已去除
         </div>
+        <div v-else-if="state.error" class="flex items-start gap-2 text-sm text-umber">
+          <span class="font-mono">!</span>
+          <span class="flex-1">{{ state.error }}</span>
+        </div>
       </div>
 
       <!-- 1 信息 -->
@@ -112,6 +119,7 @@ function onPick(e: Event) {
           <span class="flex gap-1.5">
             <span class="h-5 w-5 rounded-full border border-black/10" :style="{ background: s.bg }"></span>
             <span class="h-5 w-5 rounded-full border border-black/10" :style="{ background: s.fg }"></span>
+            <span class="h-5 w-5 rounded-full border border-black/10" :style="{ background: s.accent }"></span>
           </span>
           <span class="flex-1">
             <span class="block font-display text-lg leading-tight">{{ s.name }}</span>
@@ -124,7 +132,10 @@ function onPick(e: Event) {
       <!-- 3 生成 -->
       <div v-else class="space-y-5">
         <template v-if="!state.generating && !state.generated">
-          <p class="text-sm leading-relaxed text-ink-soft">一切就绪，让 AI 开始为它创作。</p>
+          <p class="text-sm leading-relaxed text-ink-soft">
+            一切就绪。生成会用这件商品套出「{{ selectedStyle?.name ?? '所选风格' }}」下的全部版式，
+            每套版式的构图、画幅和配色都不同。
+          </p>
           <div class="space-y-1.5 border-t border-warm-300 pt-4 text-sm text-ink-soft">
             <p>商品：{{ state.name || '—' }}</p>
             <p>风格：{{ selectedStyle?.name ?? '—' }}</p>
@@ -133,7 +144,7 @@ function onPick(e: Event) {
         </template>
 
         <template v-else-if="state.generating">
-          <p class="text-sm text-ink-soft">作品正在被创造…</p>
+          <p class="text-sm text-ink-soft">正在套用版式并渲染…</p>
           <ul class="space-y-4 pt-2">
             <li v-for="(g, i) in genSteps" :key="g" class="flex items-center gap-3 text-sm">
               <span
@@ -151,9 +162,15 @@ function onPick(e: Event) {
         <template v-else>
           <div class="flex items-center gap-2 text-sage">
             <span class="font-mono">✓</span>
-            <span>生成完成，共 4 个方案</span>
+            <span>已生成 {{ state.variants.length }} 个方案</span>
           </div>
-          <p class="text-sm leading-relaxed text-ink-faint">（方案展示与编辑器将在下一步实现）</p>
+          <div class="space-y-1.5 border-t border-warm-300 pt-4 text-sm text-ink-soft">
+            <p>当前方案：{{ activeTemplate?.name ?? '—' }}</p>
+            <p>画幅：{{ activeTemplate ? `${activeTemplate.ratio[0]} : ${activeTemplate.ratio[1]}` : '—' }}</p>
+          </div>
+          <p class="text-sm leading-relaxed text-ink-faint">
+            在左侧点选其他方案即可切换，满意后下载 PNG。
+          </p>
         </template>
       </div>
     </div>
@@ -172,13 +189,26 @@ function onPick(e: Event) {
           v-if="!state.generating && !state.generated"
           type="button"
           class="btn-cta w-full"
+          :disabled="!canGenerate"
+          :class="{ 'opacity-40': !canGenerate }"
           @click="startGenerate"
         >
           开始生成
         </button>
-        <div v-else-if="state.generated" class="flex gap-3">
-          <button type="button" class="btn-rect flex-1" @click="startGenerate">重新生成</button>
-          <button type="button" class="btn-cta flex-1" @click="reset">重新开始</button>
+        <div v-else-if="state.generated" class="space-y-3">
+          <button
+            type="button"
+            class="btn-cta w-full"
+            :disabled="state.downloading"
+            :class="{ 'opacity-40': state.downloading }"
+            @click="downloadActive"
+          >
+            {{ state.downloading ? '导出中…' : '下载 PNG' }}
+          </button>
+          <div class="flex gap-3">
+            <button type="button" class="btn-rect flex-1" @click="startGenerate">重新生成</button>
+            <button type="button" class="btn-rect flex-1" @click="reset">重新开始</button>
+          </div>
         </div>
         <div v-else class="text-center text-sm text-ink-faint">创作中…</div>
       </div>
