@@ -6,6 +6,7 @@ withDefaults(
     title: string
     tag: string
     image?: string | null
+    generatedImage?: string | null
     /** 0-3 控制海报逐层构建，3 = 完整 */
     buildStep?: number
   }>(),
@@ -18,6 +19,13 @@ withDefaults(
     class="relative aspect-[3/4] w-full overflow-hidden shadow-sm transition-colors duration-500"
     :style="{ backgroundColor: bg }"
   >
+    <img
+      v-if="generatedImage"
+      :src="generatedImage"
+      alt="生成的商品海报"
+      class="absolute inset-0 h-full w-full object-contain"
+    />
+    <template v-else>
     <!-- 内框 -->
     <div
       class="absolute inset-5 border transition-opacity duration-500"
@@ -59,5 +67,6 @@ withDefaults(
         {{ tag }}
       </p>
     </div>
+    </template>
   </div>
 </template>

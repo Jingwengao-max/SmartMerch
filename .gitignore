@@ -3,4 +3,19 @@ dist
 .DS_Store
 *.local
 npm-debug.log*
+.npm-cache/
 .env
+
+# Python backend
+backend/__pycache__/
+backend/*.py[cod]
+backend/.venv/
+backend/.pytest_cache/
+backend/.uv-cache/
+backend/generated/
+backend/output/
+backend/data/*.csv
+backend/data/*.json
+backend/assets/
+backend/vendor/
+backend/web/

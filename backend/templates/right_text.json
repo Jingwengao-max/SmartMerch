@@ -1,0 +1,12 @@
+{
+  "id": "right_text",
+  "name": "左图右文版",
+  "style": ["minimal", "business", "tech"],
+  "product_area": [0.088, 0.222, 0.542, 0.826],
+  "title_area": [0.542, 0.259, 0.935, 0.337],
+  "subtitle_area": [0.542, 0.359, 0.935, 0.419],
+  "title_font_size": 72,
+  "subtitle_font_size": 42,
+  "expected_product_center_x": 0.31,
+  "preferred_shapes": ["vertical", "square"]
+}

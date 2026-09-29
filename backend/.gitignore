@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+
+# Runtime output and local data
+generated/
+output/
+data/*.csv
+data/*.json
+.uv-cache/
+
+# Local samples and optional libraries
+assets/
+backgrounds/*
+!backgrounds/README.md
+vendor/
+
+# Frontend is maintained in the SmartMerch root repository
+web/
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

@@ -13,6 +13,8 @@ const {
   next,
   back,
   selectStyle,
+  applyCopywriting,
+  selectCandidate,
   startGenerate,
   reset,
   setFile,
@@ -65,6 +67,8 @@ function onPick(e: Event) {
         <div v-else-if="state.bgRemoved" class="flex items-center gap-2 text-sm text-sage">
           <span class="font-mono">✓</span> 已识别商品主体 · 背景已去除
         </div>
+        <p v-if="state.analyzing" class="text-sm text-ink-soft">正在识别商品并生成文案…</p>
+        <p v-if="state.error" class="text-sm text-red-700">{{ state.error }}</p>
       </div>
 
       <!-- 1 信息 -->
@@ -73,6 +77,19 @@ function onPick(e: Event) {
           <p class="font-display text-lg leading-snug">这件商品叫什么？</p>
           <input v-model="state.name" class="field-input mt-3" placeholder="例如：手工陶瓷杯" />
         </label>
+        <div v-if="state.copywriting.length" class="space-y-2">
+          <p class="text-sm text-ink-soft">AI 文案建议</p>
+          <button
+            v-for="item in state.copywriting"
+            :key="item.title + item.subtitle"
+            type="button"
+            class="w-full border border-warm-300 px-3 py-2 text-left hover:border-ink"
+            @click="applyCopywriting(item)"
+          >
+            <strong class="block text-sm">{{ item.title }}</strong>
+            <span class="text-xs text-ink-faint">{{ item.subtitle }}</span>
+          </button>
+        </div>
         <label class="block">
           <p class="font-display text-lg leading-snug">它最特别的地方是什么？</p>
           <textarea
@@ -151,10 +168,23 @@ function onPick(e: Event) {
         <template v-else>
           <div class="flex items-center gap-2 text-sage">
             <span class="font-mono">✓</span>
-            <span>生成完成，共 4 个方案</span>
+            <span>生成完成，共 {{ state.candidates.length }} 个方案</span>
           </div>
-          <p class="text-sm leading-relaxed text-ink-faint">（方案展示与编辑器将在下一步实现）</p>
+          <div class="grid grid-cols-3 gap-2">
+            <button
+              v-for="(candidate, index) in state.candidates"
+              :key="candidate.id"
+              type="button"
+              class="overflow-hidden border p-1"
+              :class="index === state.selectedCandidateIndex ? 'border-ink' : 'border-warm-300'"
+              @click="selectCandidate(index)"
+            >
+              <img :src="candidate.previewUrl" :alt="candidate.name" class="aspect-[4/5] w-full object-cover" />
+              <span class="mt-1 block truncate text-[10px]">{{ index === 0 ? '推荐 · ' : '' }}{{ candidate.name }}</span>
+            </button>
+          </div>
         </template>
+        <p v-if="state.error" class="text-sm text-red-700">{{ state.error }}</p>
       </div>
     </div>
 

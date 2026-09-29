@@ -1,13 +1,15 @@
-import { reactive, ref, computed } from 'vue'
+import { computed, reactive, ref } from 'vue'
+import {
+  analyzeCopy,
+  assetUrl,
+  cutoutProduct,
+  generatePosters,
+  type CopywritingOption,
+  type PosterCandidate,
+  type PosterDocument,
+} from '@/services/posterApi'
 
-export interface Style {
-  key: string
-  name: string
-  en: string
-  desc: string
-  bg: string
-  fg: string
-}
+export interface Style { key: string; name: string; en: string; desc: string; bg: string; fg: string }
 
 export const steps = [
   { no: '01', key: 'upload', title: '上传商品', en: 'Upload' },
@@ -27,140 +29,145 @@ export const styles: Style[] = [
 export const genSteps = ['识别商品主体', '寻找视觉方向', '生成场景', '完成排版']
 
 const state = reactive({
+  sourceFile: null as File | null,
   image: null as string | null,
   imageName: '',
+  cutoutUrl: '',
+  jobId: '',
   removing: false,
   bgRemoved: false,
+  analyzing: false,
   name: '',
   feature: '',
   vibe: '',
   style: null as string | null,
+  copywriting: [] as CopywritingOption[],
+  aiWarning: '',
   generating: false,
   genStep: -1,
   generated: false,
+  candidates: [] as PosterCandidate[],
+  editorDocument: null as PosterDocument | null,
+  selectedCandidateIndex: 0,
+  error: '',
 })
 
 const step = ref(0)
-
-let timers: ReturnType<typeof setTimeout>[] = []
-
-function clearTimers() {
-  timers.forEach((t) => clearTimeout(t))
-  timers = []
-}
-
-const selectedStyle = computed<Style | null>(
-  () => styles.find((s) => s.key === state.style) ?? null
-)
-
+const selectedStyle = computed<Style | null>(() => styles.find((item) => item.key === state.style) ?? null)
+const selectedCandidate = computed<PosterCandidate | null>(() => state.candidates[state.selectedCandidateIndex] ?? null)
 const canNext = computed(() => {
-  switch (step.value) {
-    case 0:
-      return !!state.image && state.bgRemoved
-    case 1:
-      return state.name.trim().length > 0
-    case 2:
-      return !!state.style
-    default:
-      return false
-  }
+  if (step.value === 0) return !!state.sourceFile && state.bgRemoved && !state.removing
+  if (step.value === 1) return state.name.trim().length > 0
+  if (step.value === 2) return !!state.style
+  return false
 })
 
-function setFile(file: File) {
-  if (!file || !file.type.startsWith('image/')) return
-  clearTimers()
-  const reader = new FileReader()
-  reader.onload = () => {
-    state.image = reader.result as string
-    state.imageName = file.name
-    state.bgRemoved = false
-    state.removing = true
-    // 模拟抠图（前端演示，实际由后端 AI 完成）
-    timers.push(
-      setTimeout(() => {
-        state.removing = false
-        state.bgRemoved = true
-      }, 1200)
-    )
+async function setFile(file: File) {
+  if (!file?.type.startsWith('image/')) return
+  if (state.image?.startsWith('blob:')) URL.revokeObjectURL(state.image)
+  Object.assign(state, {
+    sourceFile: file,
+    image: URL.createObjectURL(file),
+    imageName: file.name,
+    cutoutUrl: '',
+    bgRemoved: false,
+    removing: true,
+    analyzing: true,
+    generated: false,
+    candidates: [],
+    error: '',
+    aiWarning: '',
+  })
+
+  const cutoutTask = cutoutProduct(file)
+    .then((result) => {
+      state.jobId = result.jobId
+      state.cutoutUrl = assetUrl(result.cutoutUrl)
+      state.image = state.cutoutUrl
+      state.bgRemoved = true
+    })
+    .catch((error: Error) => {
+      state.error = error.message
+      state.bgRemoved = false
+    })
+    .finally(() => (state.removing = false))
+
+  const analysisTask = analyzeCopy(file)
+    .then((result) => {
+      state.copywriting = result.copywriting
+      if (!state.name && result.category !== '待人工确认的商品') state.name = result.category
+      if (!state.feature) state.feature = result.visible_features?.join('，') || result.copywriting[0]?.subtitle || ''
+      state.aiWarning = result.warning
+    })
+    .catch(() => {
+      state.aiWarning = ''
+    })
+    .finally(() => (state.analyzing = false))
+
+  await Promise.allSettled([cutoutTask, analysisTask])
+}
+
+function next() { if (canNext.value && step.value < 3) step.value++ }
+function back() { if (step.value > 0 && !state.generating) step.value-- }
+function goTo(index: number) { if (index >= 0 && index <= step.value && !state.generating) step.value = index }
+function selectStyle(key: string) { state.style = key }
+function applyCopywriting(option: CopywritingOption) { state.name = option.title; state.feature = option.subtitle }
+function selectCandidate(index: number) {
+  if (index >= 0 && index < state.candidates.length) {
+    state.selectedCandidateIndex = index
+    state.editorDocument = JSON.parse(JSON.stringify(state.candidates[index])) as PosterDocument
   }
-  reader.readAsDataURL(file)
 }
+function updateEditorDocument(document: PosterDocument) { state.editorDocument = document }
 
-function next() {
-  if (canNext.value && step.value < 3) step.value++
-}
-
-function back() {
-  if (step.value > 0) {
-    clearTimers()
-    state.generating = false
-    state.genStep = -1
-    step.value--
-  }
-}
-
-function goTo(i: number) {
-  if (i < 0 || i > step.value) return
-  clearTimers()
-  state.generating = false
-  state.genStep = -1
-  step.value = i
-}
-
-function selectStyle(key: string) {
-  state.style = key
-}
-
-function startGenerate() {
-  if (state.generating || !canNext.value) return
+async function startGenerate() {
+  if (state.generating || !state.sourceFile || !state.style) return
   state.generating = true
   state.generated = false
   state.genStep = 0
-  clearTimers()
-  timers.push(setTimeout(() => (state.genStep = 1), 700))
-  timers.push(setTimeout(() => (state.genStep = 2), 1500))
-  timers.push(setTimeout(() => (state.genStep = 3), 2300))
-  timers.push(
-    setTimeout(() => {
-      state.generating = false
-      state.generated = true
-    }, 3200)
-  )
+  state.error = ''
+  const progress = window.setInterval(() => {
+    if (state.genStep < genSteps.length - 1) state.genStep++
+  }, 900)
+  try {
+    const result = await generatePosters({
+      image: state.sourceFile,
+      name: state.name,
+      feature: state.feature,
+      vibe: state.vibe,
+      style: state.style,
+    })
+    state.jobId = result.jobId
+    state.candidates = result.candidates.map((item) => ({ ...item, previewUrl: assetUrl(item.previewUrl) }))
+    state.selectedCandidateIndex = 0
+    state.editorDocument = state.candidates[0]
+      ? JSON.parse(JSON.stringify(state.candidates[0])) as PosterDocument
+      : null
+    state.generated = true
+    state.genStep = genSteps.length - 1
+  } catch (error) {
+    state.error = error instanceof Error ? error.message : '生成失败，请稍后重试。'
+  } finally {
+    window.clearInterval(progress)
+    state.generating = false
+  }
 }
 
 function reset() {
-  clearTimers()
+  if (state.image?.startsWith('blob:')) URL.revokeObjectURL(state.image)
   Object.assign(state, {
-    image: null,
-    imageName: '',
-    removing: false,
-    bgRemoved: false,
-    name: '',
-    feature: '',
-    vibe: '',
-    style: null,
-    generating: false,
-    genStep: -1,
-    generated: false,
+    sourceFile: null, image: null, imageName: '', cutoutUrl: '', jobId: '', removing: false,
+    bgRemoved: false, analyzing: false, name: '', feature: '', vibe: '', style: null,
+    copywriting: [], aiWarning: '', generating: false, genStep: -1, generated: false,
+    candidates: [], editorDocument: null, selectedCandidateIndex: 0, error: '',
   })
   step.value = 0
 }
 
 export function useStudio() {
   return {
-    steps,
-    styles,
-    genSteps,
-    state,
-    step,
-    selectedStyle,
-    canNext,
-    setFile,
-    next,
-    back,
-    goTo,
-    selectStyle,
-    startGenerate,
-    reset,
+    steps, styles, genSteps, state, step, selectedStyle, selectedCandidate, canNext,
+    setFile, next, back, goTo, selectStyle, applyCopywriting, selectCandidate,
+    updateEditorDocument, startGenerate, reset,
   }
 }

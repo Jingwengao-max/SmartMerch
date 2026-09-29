@@ -1,0 +1,12 @@
+{
+  "id": "center",
+  "name": "上文下图居中版",
+  "style": ["minimal", "fresh", "natural", "festive"],
+  "product_area": [0.176, 0.256, 0.824, 0.822],
+  "title_area": [0.083, 0.089, 0.917, 0.163],
+  "subtitle_area": [0.083, 0.189, 0.917, 0.233],
+  "title_font_size": 88,
+  "subtitle_font_size": 42,
+  "expected_product_center_x": 0.5,
+  "preferred_shapes": ["vertical", "square"]
+}
