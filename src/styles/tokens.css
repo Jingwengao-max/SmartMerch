@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+/*
+ * 设计变量 —— 全部视觉 token 的唯一来源
+ * 色彩：米白纸张 / 暖灰 / 低饱和绿 / 棕色（自然色，低饱和）
+ * 字体：衬线（标题/视觉中心）+ 黑体（正文）+ 等宽（章节编号）
+ */
+@theme {
+  /* ── 色彩 ─────────────────────────────── */
+  --color-paper: #f6f3ec; /* 米白纸张底 */
+  --color-paper-deep: #efe9de; /* 分区亚麻底 */
+  --color-warm-100: #e7e1d5; /* 暖灰浅 */
+  --color-warm-200: #ddd6c8; /* 暖灰中 */
+  --color-warm-300: #d6cec0; /* 暖灰深（hairline 描边） */
+  --color-ink: #2b2723; /* 主文字 暖墨 */
+  --color-ink-soft: #5c564e; /* 次级文字 */
+  --color-ink-faint: #8b847a; /* 辅助/图注文字 */
+  --color-sage: #7b8a72; /* 鼠尾草绿（品牌主色） */
+  --color-moss: #4e5c46; /* 苔藓深绿（主色 hover） */
+  --color-umber: #a87e52; /* 赭石棕（辅助暖色） */
+  --color-clay: #c08b62; /* 陶土（点缀） */
+  --color-oat: #e9e0cb; /* 燕麦（点缀浅色） */
+
+  /* ── 字体 ─────────────────────────────── */
+  --font-display: "LXGW WenKai", "Kaiti SC", "STKaiti", serif;
+  --font-body: "LXGW WenKai", "Noto Sans SC", "PingFang SC", sans-serif;
+  --font-mono: "SF Mono", ui-monospace, "Menlo", "Monaco", monospace;
+}

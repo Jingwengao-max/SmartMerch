@@ -1,0 +1,169 @@
+:root {
+  color-scheme: light;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 96px;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background-color: var(--color-sage);
+  color: var(--color-paper);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* ── 编辑杂志式 CTA ────────────────────────────── */
+/* 文字链接 + 下划线 + 箭头 */
+.btn-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--color-ink);
+  transition: color 0.25s ease, border-color 0.25s ease;
+}
+.btn-link:hover {
+  color: var(--color-moss);
+  border-color: var(--color-moss);
+}
+.btn-link .arrow {
+  transition: transform 0.25s ease;
+}
+.btn-link:hover .arrow {
+  transform: translateX(3px);
+}
+
+/* 细线矩形按钮：无圆角、等宽小字、克制 */
+.btn-rect {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  border: 1px solid var(--color-ink);
+  padding: 0.85rem 1.7rem;
+  cursor: pointer;
+  transition: background-color 0.25s ease, color 0.25s ease,
+    border-color 0.25s ease;
+}
+.btn-rect:hover {
+  background-color: var(--color-ink);
+  color: var(--color-paper);
+}
+
+/* 主 CTA：大号、高对比、楷体，第一眼可见 */
+.btn-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  background-color: var(--color-ink);
+  color: var(--color-paper);
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  padding: 1.05rem 2.6rem;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+.btn-cta:hover {
+  background-color: var(--color-sage);
+}
+.btn-cta .arrow {
+  transition: transform 0.3s ease;
+}
+.btn-cta:hover .arrow {
+  transform: translateX(6px);
+}
+
+/* ── 对谈式输入 ───────────────────────────────── */
+.field-input,
+.field-textarea {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--color-warm-300);
+  padding: 0.55rem 0;
+  font-family: var(--font-body);
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--color-ink);
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+.field-textarea {
+  resize: none;
+  min-height: 3.2rem;
+}
+.field-input:focus,
+.field-textarea:focus {
+  border-color: var(--color-sage);
+}
+.field-input::placeholder,
+.field-textarea::placeholder {
+  color: var(--color-ink-faint);
+}
+
+/* 识别中的小圆点 */
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.dot-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--color-sage);
+  animation: pulse-dot 1s ease-in-out infinite;
+}
+
+/* ── 滚动 reveal 动画（由 v-reveal 指令触发） ────── */
+.reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.9s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+.reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
