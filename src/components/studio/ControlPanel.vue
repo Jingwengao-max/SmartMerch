@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useStudio } from '@/composables/useStudio'
+import CopyVariantCard from './CopyVariantCard.vue'
 
 const {
   state,
@@ -14,6 +15,8 @@ const {
   back,
   selectStyle,
   applyCopywriting,
+  generateCopySuggestions,
+  refineVariant,
   selectCandidate,
   startGenerate,
   reset,
@@ -21,6 +24,16 @@ const {
 } = useStudio()
 
 const vibeOptions = ['上新', '节日', '品牌', '种草', '清仓']
+
+const sellingText = computed({
+  get: () => state.sellingPoints.join('、'),
+  set: (value: string) => {
+    state.sellingPoints = value
+      .split(/[、,，;；|]/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+  },
+})
 
 const fileInput = ref<HTMLInputElement | null>(null)
 function openPicker() {
@@ -67,29 +80,50 @@ function onPick(e: Event) {
         <div v-else-if="state.bgRemoved" class="flex items-center gap-2 text-sm text-sage">
           <span class="font-mono">✓</span> 已识别商品主体 · 背景已去除
         </div>
-        <p v-if="state.analyzing" class="text-sm text-ink-soft">正在识别商品并生成文案…</p>
         <p v-if="state.error" class="text-sm text-red-700">{{ state.error }}</p>
       </div>
 
       <!-- 1 信息 -->
       <div v-else-if="step === 1" class="space-y-8">
+        <!-- AI 先出一版文案，用户再逐条提意见 -->
+        <div class="space-y-3">
+          <p class="text-sm text-ink-soft">
+            文案建议
+            <span class="text-ink-faint">
+              {{ state.copySource === 'ai' ? '（视觉模型）' : '（未配置模型，当前为通用占位）' }}
+            </span>
+          </p>
+          <p v-if="state.analyzing && !state.copyVariants.length" class="text-sm text-ink-faint">
+            正在根据商品图生成文案…
+          </p>
+          <CopyVariantCard
+            v-for="(item, index) in state.copyVariants"
+            :key="index"
+            :variant="item"
+            :index="index"
+            :busy="state.analyzing"
+            @apply="applyCopywriting(item)"
+            @refine="refineVariant(index, $event)"
+          />
+          <p v-if="state.aiWarning" class="text-xs leading-relaxed text-ink-faint">{{ state.aiWarning }}</p>
+          <button
+            type="button"
+            class="text-xs text-ink-faint underline disabled:opacity-40"
+            :disabled="state.analyzing"
+            @click="generateCopySuggestions"
+          >
+            {{ state.copyVariants.length ? '结合下面的信息重新生成' : '重新生成一版' }}
+          </button>
+        </div>
+
+        <div class="space-y-8 border-t border-warm-300 pt-6">
+          <p class="text-xs leading-relaxed text-ink-faint">
+            下面的内容可以先不动；点「应用这组」会自动填进来，也可以自己改。
+          </p>
         <label class="block">
           <p class="font-display text-lg leading-snug">这件商品叫什么？</p>
           <input v-model="state.name" class="field-input mt-3" placeholder="例如：手工陶瓷杯" />
         </label>
-        <div v-if="state.copywriting.length" class="space-y-2">
-          <p class="text-sm text-ink-soft">AI 文案建议</p>
-          <button
-            v-for="item in state.copywriting"
-            :key="item.title + item.subtitle"
-            type="button"
-            class="w-full border border-warm-300 px-3 py-2 text-left hover:border-ink"
-            @click="applyCopywriting(item)"
-          >
-            <strong class="block text-sm">{{ item.title }}</strong>
-            <span class="text-xs text-ink-faint">{{ item.subtitle }}</span>
-          </button>
-        </div>
         <label class="block">
           <p class="font-display text-lg leading-snug">它最特别的地方是什么？</p>
           <textarea
@@ -98,6 +132,25 @@ function onPick(e: Event) {
             placeholder="例如：手工拉坯，每一只都独一无二"
           ></textarea>
         </label>
+        <label class="block">
+          <p class="font-display text-lg leading-snug">有哪些卖点？</p>
+          <textarea
+            v-model="sellingText"
+            class="field-textarea mt-3"
+            placeholder="用顿号分隔，例如：手工拉坯、耐高温、易清洗"
+          ></textarea>
+          <span class="mt-2 block text-xs text-ink-faint">每条卖点会单独成为一个图层，最多 4 条。</span>
+        </label>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="block">
+            <p class="font-display text-lg leading-snug">价格</p>
+            <input v-model="state.price" class="field-input mt-3" placeholder="例如：￥39" />
+          </label>
+          <label class="block">
+            <p class="font-display text-lg leading-snug">活动</p>
+            <input v-model="state.promo" class="field-input mt-3" placeholder="例如：第二件半价" />
+          </label>
+        </div>
         <div>
           <p class="font-display text-lg leading-snug">你希望它传达什么感觉？</p>
           <div class="mt-4 flex flex-wrap gap-2">
@@ -113,6 +166,8 @@ function onPick(e: Event) {
             </button>
           </div>
         </div>
+        </div>
+        <p v-if="state.error" class="text-sm text-red-700">{{ state.error }}</p>
       </div>
 
       <!-- 2 风格 -->
@@ -146,6 +201,9 @@ function onPick(e: Event) {
             <p>商品：{{ state.name || '—' }}</p>
             <p>风格：{{ selectedStyle?.name ?? '—' }}</p>
             <p>方向：{{ state.vibe || '未指定' }}</p>
+            <p v-if="state.price">价格：{{ state.price }}</p>
+            <p v-if="state.promo">活动：{{ state.promo }}</p>
+            <p v-if="state.sellingPoints.length">卖点：{{ state.sellingPoints.join(' · ') }}</p>
           </div>
         </template>
 
@@ -170,6 +228,9 @@ function onPick(e: Event) {
             <span class="font-mono">✓</span>
             <span>生成完成，共 {{ state.candidates.length }} 个方案</span>
           </div>
+          <p v-if="state.skippedTemplates.length" class="text-xs leading-relaxed text-ink-faint">
+            有 {{ state.skippedTemplates.length }} 个模板放不下当前文字已被跳过，缩短副标题后重新生成可获得更多方案。
+          </p>
           <div class="grid grid-cols-3 gap-2">
             <button
               v-for="(candidate, index) in state.candidates"
