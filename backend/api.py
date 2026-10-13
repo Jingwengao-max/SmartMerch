@@ -534,5 +534,6 @@ if __name__ == "__main__":
     import uvicorn
     import webbrowser
 
-    threading.Timer(1.2, lambda: webbrowser.open("http://127.0.0.1:8000/studio")).start()
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    preview_url = "http://127.0.0.1:8765/studio"
+    threading.Timer(1.2, lambda: webbrowser.open(preview_url)).start()
+    uvicorn.run(app, host="127.0.0.1", port=8765)
