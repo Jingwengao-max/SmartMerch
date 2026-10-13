@@ -25,6 +25,6 @@ npm run build
 
 Write-Host "[3/3] Starting SmartMerch..." -ForegroundColor Green
 Write-Host "The browser will open automatically. Close this window to stop the server."
-Write-Host "URL: http://localhost:8765/studio"
+Write-Host "URL: http://127.0.0.1:8765/studio (opened in a proxy-free preview window)"
 Set-Location -LiteralPath (Join-Path $PSScriptRoot "backend")
 & $python api.py

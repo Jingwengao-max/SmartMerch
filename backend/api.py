@@ -514,7 +514,7 @@ def feedback(payload: dict[str, Any]):
 
 @app.get("/{full_path:path}", include_in_schema=False)
 def frontend(full_path: str):
-    """在生产预览模式下由同一个 8000 端口提供 Vue 页面。"""
+    """在生产预览模式下由同一个端口提供 Vue 页面。"""
     if not FRONTEND_DIR.is_dir():
         raise HTTPException(
             503,
@@ -530,10 +530,32 @@ def frontend(full_path: str):
 
 
 if __name__ == "__main__":
+    import os
+    import subprocess
     import threading
     import uvicorn
     import webbrowser
 
-    preview_url = "http://localhost:8765/studio"
-    threading.Timer(1.2, lambda: webbrowser.open(preview_url)).start()
+    def open_preview_without_proxy() -> None:
+        preview_url = "http://127.0.0.1:8765/studio"
+        edge_candidates = [
+            Path(os.environ.get("PROGRAMFILES(X86)", "")) / "Microsoft/Edge/Application/msedge.exe",
+            Path(os.environ.get("PROGRAMFILES", "")) / "Microsoft/Edge/Application/msedge.exe",
+            Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft/Edge/Application/msedge.exe",
+        ]
+        edge = next((path for path in edge_candidates if path.is_file()), None)
+        if edge:
+            subprocess.Popen([
+                str(edge),
+                f"--user-data-dir={ROOT / '.preview-browser-profile'}",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--proxy-server=direct://",
+                "--proxy-bypass-list=*",
+                f"--app={preview_url}",
+            ])
+            return
+        webbrowser.open(preview_url)
+
+    threading.Timer(1.5, open_preview_without_proxy).start()
     uvicorn.run(app, host="0.0.0.0", port=8765)

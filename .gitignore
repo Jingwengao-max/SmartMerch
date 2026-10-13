@@ -21,3 +21,4 @@ backend/data/*.json
 backend/assets/
 backend/vendor/
 backend/web/
+backend/.preview-browser-profile/

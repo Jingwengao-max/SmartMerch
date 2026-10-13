@@ -7,7 +7,8 @@ if not exist "%PYTHON_EXE%" (
   pause
   exit /b 1
 )
-echo Starting SmartMerch at http://localhost:8765/studio
+echo Starting SmartMerch at http://127.0.0.1:8765/studio
+echo A separate proxy-free Edge preview window will open automatically.
 echo Keep this window open while using the website.
 "%PYTHON_EXE%" api.py
 echo.
