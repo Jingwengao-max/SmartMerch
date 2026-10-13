@@ -35,6 +35,7 @@ from quality_evaluator import evaluate_document
 
 ROOT = Path(__file__).resolve().parent
 WEB_DIR = ROOT / "web"
+FRONTEND_DIR = ROOT.parent / "dist"
 GENERATED_DIR = ROOT / "generated"
 DATA_DIR = ROOT / "data"
 GENERATED_DIR.mkdir(exist_ok=True)
@@ -511,7 +512,27 @@ def feedback(payload: dict[str, Any]):
     return {"saved": True}
 
 
-if __name__ == "__main__":
-    import uvicorn
+@app.get("/{full_path:path}", include_in_schema=False)
+def frontend(full_path: str):
+    """在生产预览模式下由同一个 8000 端口提供 Vue 页面。"""
+    if not FRONTEND_DIR.is_dir():
+        raise HTTPException(
+            503,
+            "前端尚未构建，请在项目根目录运行 npm run build。",
+        )
+    requested = (FRONTEND_DIR / full_path).resolve()
+    frontend_root = FRONTEND_DIR.resolve()
+    if requested != frontend_root and frontend_root not in requested.parents:
+        raise HTTPException(404, "页面不存在。")
+    if requested.is_file():
+        return FileResponse(requested)
+    return FileResponse(FRONTEND_DIR / "index.html")
 
-    uvicorn.run("api:app", host="127.0.0.1", port=8000, reload=True)
+
+if __name__ == "__main__":
+    import threading
+    import uvicorn
+    import webbrowser
+
+    threading.Timer(1.2, lambda: webbrowser.open("http://127.0.0.1:8000/studio")).start()
+    uvicorn.run(app, host="127.0.0.1", port=8000)
