@@ -1,10 +1,13 @@
 import { computed, reactive, ref } from 'vue'
 import {
-  analyzeCopy,
   assetUrl,
   cutoutProduct,
+  generateCopy,
   generatePosters,
-  type CopywritingOption,
+  refineCopy,
+  type CopyFeedback,
+  type CopySet,
+  type CopyVariant,
   type PosterCandidate,
   type PosterDocument,
 } from '@/services/posterApi'
@@ -41,12 +44,17 @@ const state = reactive({
   feature: '',
   vibe: '',
   style: null as string | null,
-  copywriting: [] as CopywritingOption[],
+  copyVariants: [] as CopyVariant[],
+  copySource: '' as string,
+  price: '',
+  promo: '',
+  sellingPoints: [] as string[],
   aiWarning: '',
   generating: false,
   genStep: -1,
   generated: false,
   candidates: [] as PosterCandidate[],
+  skippedTemplates: [] as { templateId: string; reason: string }[],
   editorDocument: null as PosterDocument | null,
   selectedCandidateIndex: 0,
   error: '',
@@ -62,6 +70,16 @@ const canNext = computed(() => {
   return false
 })
 
+/** 等浏览器真的能把图解码出来再切换 src，避免中间出现空白。 */
+function preloadImage(url: string) {
+  return new Promise<void>((resolve) => {
+    const image = new Image()
+    image.onload = () => resolve()
+    image.onerror = () => resolve()
+    image.src = url
+  })
+}
+
 async function setFile(file: File) {
   if (!file?.type.startsWith('image/')) return
   if (state.image?.startsWith('blob:')) URL.revokeObjectURL(state.image)
@@ -72,46 +90,136 @@ async function setFile(file: File) {
     cutoutUrl: '',
     bgRemoved: false,
     removing: true,
-    analyzing: true,
+    analyzing: false,
     generated: false,
     candidates: [],
+    copyVariants: [],
+    copySource: '',
     error: '',
     aiWarning: '',
   })
 
   const cutoutTask = cutoutProduct(file)
-    .then((result) => {
+    .then(async (result) => {
       state.jobId = result.jobId
-      state.cutoutUrl = assetUrl(result.cutoutUrl)
-      state.image = state.cutoutUrl
+      const url = assetUrl(result.cutoutUrl)
+      state.cutoutUrl = url
+      await preloadImage(url)
+      state.image = url
       state.bgRemoved = true
+      return result.jobId
     })
     .catch((error: Error) => {
       state.error = error.message
       state.bgRemoved = false
+      return ''
     })
     .finally(() => (state.removing = false))
 
-  const analysisTask = analyzeCopy(file)
-    .then((result) => {
-      state.copywriting = result.copywriting
-      if (!state.name && result.category !== '待人工确认的商品') state.name = result.category
-      if (!state.feature) state.feature = result.visible_features?.join('，') || result.copywriting[0]?.subtitle || ''
-      state.aiWarning = result.warning
-    })
-    .catch(() => {
-      state.aiWarning = ''
-    })
-    .finally(() => (state.analyzing = false))
+  // 抠图完成后立刻基于图片出一版文案，用户再逐条提修改意见。
+  const copyTask = cutoutTask.then(async (jobId) => {
+    if (!jobId) return
+    state.analyzing = true
+    try {
+      applyCopySet(await generateCopy({ jobId }))
+    } catch (error) {
+      state.error = error instanceof Error ? error.message : '文案生成失败。'
+    } finally {
+      state.analyzing = false
+    }
+  })
 
-  await Promise.allSettled([cutoutTask, analysisTask])
+  await Promise.allSettled([cutoutTask, copyTask])
 }
 
 function next() { if (canNext.value && step.value < 3) step.value++ }
 function back() { if (step.value > 0 && !state.generating) step.value-- }
 function goTo(index: number) { if (index >= 0 && index <= step.value && !state.generating) step.value = index }
 function selectStyle(key: string) { state.style = key }
-function applyCopywriting(option: CopywritingOption) { state.name = option.title; state.feature = option.subtitle }
+
+function applyCopySet(result: CopySet) {
+  state.copyVariants = result.variants ?? []
+  state.copySource = result.source
+  const identification = result.identification
+  if (!state.name && identification?.category && identification.category !== '待人工确认的商品') {
+    state.name = identification.category
+  }
+  if (!state.feature && identification?.visible_features?.length) {
+    state.feature = identification.visible_features.join('，')
+  }
+  state.aiWarning = identification?.warning || ''
+}
+
+/** 用户填完名称/特点/卖点/价格/活动之后，结合抠图生成按块拆好的文案。 */
+async function generateCopySuggestions() {
+  if (state.analyzing) return
+  if (!state.jobId) {
+    state.error = '图片还没处理完，请等抠图完成后再生成文案。'
+    return
+  }
+  state.analyzing = true
+  state.error = ''
+  try {
+    applyCopySet(await generateCopy({
+      jobId: state.jobId,
+      name: state.name,
+      feature: state.feature,
+      sellingPoints: state.sellingPoints,
+      vibe: state.vibe,
+      style: state.style ?? '',
+      price: state.price,
+      promo: state.promo,
+    }))
+  } catch (error) {
+    state.error = error instanceof Error ? error.message : '文案生成失败。'
+  } finally {
+    state.analyzing = false
+  }
+}
+
+/** 针对某一组文案逐条提意见后改写；只替换这一组，其他方案不动。 */
+async function refineVariant(index: number, feedback: CopyFeedback) {
+  const target = state.copyVariants[index]
+  if (!target || state.analyzing) return
+  if (!state.jobId) {
+    state.error = '图片还没处理完，请稍后再试。'
+    return
+  }
+  state.analyzing = true
+  state.error = ''
+  try {
+    const result = await refineCopy({
+      jobId: state.jobId,
+      current: target,
+      feedback,
+      context: {
+        name: state.name,
+        feature: state.feature,
+        sellingPoints: state.sellingPoints,
+        vibe: state.vibe,
+        style: state.style ?? '',
+        price: state.price,
+        promo: state.promo,
+      },
+    })
+    const refined = result.variants[0]
+    if (refined) state.copyVariants[index] = refined
+    if (result.identification?.warning) state.aiWarning = result.identification.warning
+  } catch (error) {
+    state.error = error instanceof Error ? error.message : '按意见修改失败，请稍后重试。'
+  } finally {
+    state.analyzing = false
+  }
+}
+
+function applyCopywriting(variant: CopyVariant) {
+  if (variant.title) state.name = variant.title
+  if (variant.subtitle) state.feature = variant.subtitle
+  state.price = variant.price_text
+  state.promo = variant.promo_text
+  state.sellingPoints = [...variant.selling_points]
+}
+
 function selectCandidate(index: number) {
   if (index >= 0 && index < state.candidates.length) {
     state.selectedCandidateIndex = index
@@ -136,9 +244,13 @@ async function startGenerate() {
       feature: state.feature,
       vibe: state.vibe,
       style: state.style,
+      price: state.price,
+      promo: state.promo,
+      sellingPoints: state.sellingPoints,
     })
     state.jobId = result.jobId
     state.candidates = result.candidates.map((item) => ({ ...item, previewUrl: assetUrl(item.previewUrl) }))
+    state.skippedTemplates = result.skippedTemplates ?? []
     state.selectedCandidateIndex = 0
     state.editorDocument = state.candidates[0]
       ? JSON.parse(JSON.stringify(state.candidates[0])) as PosterDocument
@@ -158,8 +270,9 @@ function reset() {
   Object.assign(state, {
     sourceFile: null, image: null, imageName: '', cutoutUrl: '', jobId: '', removing: false,
     bgRemoved: false, analyzing: false, name: '', feature: '', vibe: '', style: null,
-    copywriting: [], aiWarning: '', generating: false, genStep: -1, generated: false,
-    candidates: [], editorDocument: null, selectedCandidateIndex: 0, error: '',
+    copyVariants: [], copySource: '', price: '', promo: '', sellingPoints: [],
+    aiWarning: '', generating: false, genStep: -1, generated: false,
+    candidates: [], skippedTemplates: [], editorDocument: null, selectedCandidateIndex: 0, error: '',
   })
   step.value = 0
 }
@@ -167,7 +280,7 @@ function reset() {
 export function useStudio() {
   return {
     steps, styles, genSteps, state, step, selectedStyle, selectedCandidate, canNext,
-    setFile, next, back, goTo, selectStyle, applyCopywriting, selectCandidate,
-    updateEditorDocument, startGenerate, reset,
+    setFile, next, back, goTo, selectStyle, applyCopywriting, generateCopySuggestions, selectCandidate,
+    updateEditorDocument, startGenerate, reset, refineVariant,
   }
 }

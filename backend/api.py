@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 import uuid
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,11 @@ from PIL import Image, ImageDraw, ImageFilter
 
 from ai_copywriter import analyze_with_ai, configured as ai_configured, local_suggestions
 from background_provider import build_background
+from copy_layout import attach_copy_layers
+from copywriting import CopyRequest, generate_copy, refine_copy
+from copywriting.feedback import has_feedback, normalize_feedback
+from copywriting.schema import normalize_variant
+from env_loader import load_env
 from layout_engine import CANVAS, extract_product_features, load_font, load_templates, make_candidate
 from main import cutout
 from poster_design_adapter import normalize_template
@@ -27,6 +33,9 @@ from poster_design_source import (
     load_template as load_poster_design_template,
 )
 from quality_evaluator import evaluate_document
+
+# 让 backend/.env 在不覆盖外部环境变量的前提下生效；必须在读取任何配置之前执行。
+load_env()
 
 ROOT = Path(__file__).resolve().parent
 WEB_DIR = ROOT / "web"
@@ -61,6 +70,21 @@ def _public(path: Path) -> str:
     return f"/generated/{path.relative_to(GENERATED_DIR).as_posix()}"
 
 
+def _parse_points(raw: str) -> list[str]:
+    """卖点既接受 JSON 数组，也接受顿号/分号分隔的纯文本。"""
+    text = (raw or "").strip()
+    if not text:
+        return []
+    if text.startswith("["):
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            data = None
+        if isinstance(data, list):
+            return [str(item).strip() for item in data if str(item).strip()]
+    return [part.strip() for part in re.split(r"[，,、;；|\n]+", text) if part.strip()]
+
+
 def _asset_path(url: str) -> Path:
     roots = {
         "/generated/": GENERATED_DIR,
@@ -84,7 +108,8 @@ def _text_box(text: str, font_size: int, max_width: int) -> tuple[int, int]:
 
 def _document(job_id: str, index: int, template: dict[str, Any], candidate: dict[str, Any],
               product_url: str, background_url: str, title: str, subtitle: str,
-              price: str, provider: str) -> dict[str, Any]:
+              price: str, provider: str, copy: dict[str, Any] | None = None) -> dict[str, Any]:
+    price_text = str((copy or {}).get("price_text") or price or "").strip()
     product_rect = candidate["product_rect"]
     title_rect = candidate["title_rect"]
     subtitle_rect = candidate["subtitle_rect"]
@@ -110,9 +135,9 @@ def _document(job_id: str, index: int, template: dict[str, Any], candidate: dict
             "color": "#765f6b", "rotation": 0, "zIndex": 3,
         },
     ]
-    if price.strip():
+    if price_text:
         elements.append({
-            "id": "price", "type": "text", "role": "price", "content": price.strip(),
+            "id": "price", "type": "text", "role": "price", "content": price_text,
             "x": 790, "y": 1190, "width": 220, "height": 82,
             "fontSize": 60, "fontWeight": 700, "color": "#b94767", "rotation": 0, "zIndex": 4,
         })
@@ -126,6 +151,7 @@ def _document(job_id: str, index: int, template: dict[str, Any], candidate: dict
         "layoutScore": candidate["score"],
         "layoutScoreParts": candidate["score_parts"],
     }
+    attach_copy_layers(document, copy)
     document["quality"] = evaluate_document(document)
     return document
 
@@ -284,6 +310,93 @@ async def analyze_copy(image: UploadFile = File(...)):
         temporary.unlink(missing_ok=True)
 
 
+@app.post("/api/copy")
+async def copy_endpoint(
+    image: UploadFile | None = File(None),
+    jobId: str = Form(""),
+    name: str = Form(""),
+    feature: str = Form(""),
+    vibe: str = Form(""),
+    style: str = Form(""),
+    price: str = Form(""),
+    promo: str = Form(""),
+    selling_points: str = Form(""),
+):
+    """基于抠图结果和用户已知信息生成文案；优先复用已抠好的图，不重复上传。"""
+    job = jobId.strip()
+    source_path: Path | None = None
+    if job:
+        source_path = _job_cutout_path(job)
+    if source_path is None:
+        if image is None or not image.filename:
+            raise HTTPException(400, "请提供 jobId 或直接上传商品图片。")
+        suffix = Path(image.filename).suffix.lower()
+        if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
+            raise HTTPException(400, "请上传 PNG、JPG 或 WEBP 图片。")
+        job = uuid.uuid4().hex[:12]
+        job_dir = GENERATED_DIR / job
+        job_dir.mkdir(parents=True, exist_ok=True)
+        raw_path = job_dir / f"source{suffix}"
+        raw_path.write_bytes(await image.read())
+        source_path = job_dir / "product_cutout.png"
+        try:
+            cutout(raw_path, source_path)
+        except Exception as error:
+            raise HTTPException(500, f"自动抠图失败：{error}") from error
+
+    request = CopyRequest(
+        images=[source_path], name=name, feature=feature,
+        selling_points=_parse_points(selling_points),
+        vibe=vibe, style=style, price=price, promo=promo,
+    )
+    try:
+        result = generate_copy(request)
+    except Exception as error:
+        raise HTTPException(502, f"文案生成失败：{error}") from error
+    result["jobId"] = job
+    result["imageSource"] = "cutout"
+    return result
+
+
+def _job_cutout_path(job: str) -> Path:
+    """把 jobId 解析成该任务的抠图文件，顺带挡住路径穿越。"""
+    if not re.fullmatch(r"[0-9a-zA-Z_-]{1,40}", job):
+        raise HTTPException(400, "jobId 格式不正确。")
+    cutout_path = (GENERATED_DIR / job / "product_cutout.png").resolve()
+    if GENERATED_DIR.resolve() not in cutout_path.parents or not cutout_path.is_file():
+        raise HTTPException(404, "找不到该任务的抠图结果，请先上传图片。")
+    return cutout_path
+
+
+@app.post("/api/copy/refine")
+def refine_endpoint(payload: dict[str, Any]):
+    """按用户对某几条的修改意见改写文案；没提意见的条目保持原样。"""
+    job = str(payload.get("jobId", "")).strip()
+    current = normalize_variant(payload.get("current"))
+    if current is None:
+        raise HTTPException(400, "缺少需要修改的文案。")
+    feedback = normalize_feedback(payload.get("feedback"), len(current["selling_points"]))
+    if not has_feedback(feedback):
+        raise HTTPException(400, "请至少在一个条目下面填写修改意见。")
+    context = payload.get("context") if isinstance(payload.get("context"), dict) else {}
+    request = CopyRequest(
+        images=[_job_cutout_path(job)],
+        name=str(context.get("name", "")),
+        feature=str(context.get("feature", "")),
+        selling_points=[str(item) for item in (context.get("selling_points") or [])],
+        vibe=str(context.get("vibe", "")),
+        style=str(context.get("style", "")),
+        price=str(context.get("price", "")),
+        promo=str(context.get("promo", "")),
+    )
+    try:
+        result = refine_copy(request, current, feedback)
+    except Exception as error:
+        raise HTTPException(502, f"按意见修改失败：{error}") from error
+    result["jobId"] = job
+    return result
+
+
 @app.post("/api/generate")
 async def generate(
     image: UploadFile = File(...),
@@ -293,6 +406,8 @@ async def generate(
     feature: str = Form(""),
     vibe: str = Form(""),
     price: str = Form(""),
+    promo: str = Form(""),
+    selling_points: str = Form(""),
     style: str = Form("minimal"),
     background_provider: str = Form("auto"),
 ):
@@ -307,18 +422,30 @@ async def generate(
     try:
         resolved_title = (title or name or "新品上市").strip()
         resolved_subtitle = (subtitle or feature or "让美好融入日常").strip()
+        copy_payload = {
+            "price_text": price.strip(),
+            "promo_text": promo.strip(),
+            "selling_points": _parse_points(selling_points),
+        }
         product_path = job_dir / "product_cutout.png"
         product = cutout(source, product_path)
         features = extract_product_features(product)
         templates = load_templates()
-        ranked = sorted(
-            (
-                (item, make_candidate(item, product, resolved_title, resolved_subtitle, style))
-                for item in templates
-            ),
-            key=lambda pair: pair[1]["score"],
-            reverse=True,
-        )[:1]
+        # 逐个模板生成候选：某个模板排不下这段文字时只跳过它，不让整个请求失败。
+        scored: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        skipped: list[dict[str, str]] = []
+        for item in templates:
+            try:
+                scored.append((item, make_candidate(item, product, resolved_title, resolved_subtitle, style)))
+            except Exception as error:
+                skipped.append({"templateId": str(item.get("id", "")), "reason": str(error)})
+        if not scored:
+            raise HTTPException(
+                400,
+                "所有模板都排不下这段文字，请缩短标题或副标题后重试。"
+                f"（{skipped[0]['reason'] if skipped else '未知原因'}）",
+            )
+        ranked = sorted(scored, key=lambda pair: pair[1]["score"], reverse=True)[:1]
         mean = tuple(features["mean_rgb"])
         prompt = (
             f"commercial product poster background for {resolved_title}, {style} style, "
@@ -335,6 +462,7 @@ async def generate(
             document = _document(
                 job_id, index, template, candidate, _public(product_path),
                 _public(background_path), resolved_title, resolved_subtitle, price, provider,
+                copy_payload,
             )
             preview_path = job_dir / f"preview_{index}.jpg"
             _render(document).save(preview_path, quality=92)
@@ -352,10 +480,15 @@ async def generate(
                 "vibe": vibe,
                 "style": style,
                 "price": price,
+                "promo": promo,
+                "selling_points": copy_payload["selling_points"],
             },
             "productFeatures": features,
+            "skippedTemplates": skipped,
             "candidates": documents,
         }
+    except HTTPException:
+        raise
     except Exception as error:
         raise HTTPException(500, str(error)) from error
 

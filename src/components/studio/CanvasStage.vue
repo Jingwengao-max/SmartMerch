@@ -62,19 +62,21 @@ function onDrop(e: DragEvent) {
       </div>
 
       <div v-else>
-        <div v-if="state.removing" class="relative overflow-hidden border border-warm-300">
-          <img :src="state.image" alt="商品" class="w-full" />
-          <div class="absolute inset-0 flex items-center justify-center bg-paper/70">
-            <p class="flex items-center gap-2 text-sm text-ink-soft">
+        <!-- 只有一个 img 元素：加载状态用叠层表达，避免切换时销毁重建导致空白 -->
+        <figure>
+          <div class="relative overflow-hidden border border-warm-300 bg-white/50">
+            <img :src="state.image" alt="商品" class="block w-full" />
+            <div
+              v-if="state.removing"
+              class="absolute inset-x-0 bottom-0 flex items-center justify-center gap-2 bg-paper/90 py-2.5 text-sm text-ink-soft"
+            >
               <span class="dot-pulse"></span> 正在识别商品主体…
-            </p>
+            </div>
           </div>
-        </div>
-        <figure v-else>
-          <div class="relative overflow-hidden border border-warm-300">
-            <img :src="state.image" alt="商品" class="w-full" />
-          </div>
-          <figcaption class="mt-3 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.18em]">
+          <figcaption
+            v-if="state.bgRemoved"
+            class="mt-3 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.18em]"
+          >
             <span class="text-sage">✓ 已去除背景</span>
             <span class="text-ink-faint">{{ state.imageName }}</span>
           </figcaption>
