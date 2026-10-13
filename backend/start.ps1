@@ -11,6 +11,6 @@ if (-not (Test-Path node_modules)) {
 }
 Write-Host "Building web application..."
 npm run build
-Write-Host "Starting http://127.0.0.1:8765/studio"
+Write-Host "Starting http://localhost:8765/studio"
 Set-Location -LiteralPath (Join-Path (Get-Location) "backend")
 & $python api.py
