@@ -1,0 +1,95 @@
+{
+  "modelType": "few-shot-layout-prior",
+  "modelVersion": 1,
+  "trainedSamples": 4,
+  "canvas": [
+    1080,
+    1440
+  ],
+  "regions": {
+    "badge": [
+      0.73,
+      0.34,
+      0.23,
+      0.16
+    ],
+    "cnTitle": [
+      0.05,
+      0.27,
+      0.79,
+      0.1
+    ],
+    "footer": [
+      0.0,
+      0.87,
+      1.0,
+      0.13
+    ],
+    "heroTitle": [
+      0.05,
+      0.04,
+      0.76,
+      0.27
+    ],
+    "launch": [
+      0.62,
+      0.15,
+      0.28,
+      0.08
+    ],
+    "leftCallout": [
+      0.05,
+      0.36,
+      0.25,
+      0.12
+    ],
+    "leftDetail": [
+      0.05,
+      0.72,
+      0.25,
+      0.13
+    ],
+    "product": [
+      0.14,
+      0.4,
+      0.76,
+      0.46
+    ],
+    "rightDetail": [
+      0.79,
+      0.75,
+      0.17,
+      0.11
+    ]
+  },
+  "paletteExamples": [
+    {
+      "accent": "#69569a",
+      "soft": "#b8c6dc",
+      "paper": "#f8f3ec"
+    },
+    {
+      "accent": "#9a3e05",
+      "soft": "#f3bd55",
+      "paper": "#fbf5ec"
+    },
+    {
+      "accent": "#718d42",
+      "soft": "#c9d5a5",
+      "paper": "#faf6ed"
+    },
+    {
+      "accent": "#de5568",
+      "soft": "#efbbc0",
+      "paper": "#fbf5ee"
+    }
+  ],
+  "style": {
+    "name": "bakery-editorial",
+    "paper": "#faf5ed",
+    "outerPadding": 54,
+    "organicBackdrop": true,
+    "footerScallop": true,
+    "oversizedHeadline": true
+  }
+}

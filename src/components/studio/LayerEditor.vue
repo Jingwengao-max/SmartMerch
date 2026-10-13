@@ -110,7 +110,10 @@ async function download() {
     const blob = await renderPoster(working.value)
     const link = window.document.createElement('a')
     link.href = URL.createObjectURL(blob)
-    link.download = `${working.value.name || 'SmartMerch海报'}.png`
+    const productName = (working.value.productName || '商品').trim()
+      .replace(/[\\/:*?"<>|]/g, '-')
+      .replace(/\s+/g, ' ')
+    link.download = `智绘商品-${productName}.png`
     link.click()
     URL.revokeObjectURL(link.href)
   } catch (reason) {
@@ -161,8 +164,16 @@ async function download() {
             <img v-if="element.type === 'image'" :src="assetUrl(element.src)" alt="图层" class="h-full w-full object-contain pointer-events-none" />
             <div
               v-else
-              class="h-full w-full whitespace-nowrap leading-tight"
-              :style="{ fontSize: `${(element.fontSize || 40) * scale}px`, fontWeight: element.fontWeight || 400, color: element.color || '#222' }"
+              class="flex h-full w-full whitespace-pre-line leading-[1.18]"
+              :style="{
+                fontSize: `${(element.fontSize || 40) * scale}px`,
+                fontWeight: element.fontWeight || 400,
+                fontFamily: element.fontFamily || 'LXGW WenKai, STKaiti, serif',
+                color: element.color || '#222',
+                textAlign: element.textAlign || 'left',
+                alignItems: element.verticalAlign === 'middle' ? 'center' : element.verticalAlign === 'bottom' ? 'flex-end' : 'flex-start',
+                justifyContent: element.textAlign === 'center' ? 'center' : element.textAlign === 'right' ? 'flex-end' : 'flex-start',
+              }"
             >{{ element.content }}</div>
             <button
               v-if="selectedId === element.id"

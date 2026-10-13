@@ -15,9 +15,14 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageDraw, ImageFilter
 
-from ai_copywriter import analyze_with_ai, configured as ai_configured, local_suggestions
-from background_provider import build_background
-from layout_engine import CANVAS, extract_product_features, load_font, load_templates, make_candidate
+from ai_copywriter import (
+    analyze_with_ai,
+    configured as ai_configured,
+    local_suggestions,
+    refine_with_ai,
+)
+from layout_engine import CANVAS, extract_product_features, load_font
+from learned_layout import adaptive_palette, build_style_background, create_document, load_model
 from main import cutout
 from poster_design_adapter import normalize_template
 from poster_design_source import (
@@ -158,8 +163,37 @@ def _render(document: dict[str, Any]) -> Image.Image:
             poster.alpha_composite(layer, (x, y))
         elif element["type"] == "text":
             draw = ImageDraw.Draw(poster)
-            font = load_font(int(element.get("fontSize", 40)))
-            draw.text((x, y), str(element.get("content", "")), font=font, fill=element.get("color", "#222222"))
+            font = load_font(
+                int(element.get("fontSize", 40)),
+                int(element.get("fontWeight", 400)),
+            )
+            content = str(element.get("content", ""))
+            align = element.get("textAlign", "left")
+            line_height = round(font.size * 1.18)
+            lines = content.splitlines() or [""]
+            total_height = len(lines) * line_height
+            vertical_align = element.get("verticalAlign", "top")
+            if vertical_align == "middle":
+                text_y = y + max(0, (height - total_height) // 2)
+            elif vertical_align == "bottom":
+                text_y = y + max(0, height - total_height)
+            else:
+                text_y = y
+            for line_index, line in enumerate(lines):
+                box = draw.textbbox((0, 0), line, font=font)
+                line_width = box[2] - box[0]
+                if align == "center":
+                    line_x = x + max(0, (width - line_width) // 2)
+                elif align == "right":
+                    line_x = x + max(0, width - line_width)
+                else:
+                    line_x = x
+                draw.text(
+                    (line_x, text_y + line_index * line_height), line, font=font,
+                    fill=element.get("color", "#222222"),
+                    stroke_width=1 if int(element.get("fontWeight", 400)) >= 600 else 0,
+                    stroke_fill=element.get("color", "#222222"),
+                )
     return poster.convert("RGB")
 
 
@@ -180,12 +214,16 @@ def index():
 def health():
     import os
 
+    layout_model = load_model()
+
     return {
         "status": "ok",
-        "postercraft": bool(__import__("os").getenv("POSTERCRAFT_URL")),
         "copywriterAi": ai_configured(),
         "aiModel": os.getenv("AI_MODEL", "qwen3-vl-plus"),
         "posterDesign": poster_design_available(),
+        "layoutModel": layout_model["modelType"],
+        "layoutModelVersion": layout_model["modelVersion"],
+        "layoutTrainingSamples": layout_model["trainedSamples"],
     }
 
 
@@ -284,6 +322,72 @@ async def analyze_copy(image: UploadFile = File(...)):
         temporary.unlink(missing_ok=True)
 
 
+def _job_product_path(job_id: str) -> Path:
+    if len(job_id) != 12 or any(character not in "0123456789abcdef" for character in job_id.lower()):
+        raise HTTPException(400, "无效的任务编号。")
+    path = GENERATED_DIR / job_id / "product_cutout.png"
+    if not path.is_file():
+        raise HTTPException(404, "找不到该任务的商品图片，请重新上传。")
+    return path
+
+
+@app.post("/api/copy")
+async def generate_copy(
+    job_id: str = Form("", alias="jobId"),
+    name: str = Form(""),
+    feature: str = Form(""),
+    selling_points: str = Form("[]"),
+    footer: str = Form(""),
+    launch_text: str = Form("新品上市"),
+    badge_text: str = Form("NEW!"),
+):
+    """结合抠图与用户已填信息生成三组文案建议。"""
+    path = _job_product_path(job_id)
+    try:
+        points = json.loads(selling_points)
+        if not isinstance(points, list):
+            points = []
+    except json.JSONDecodeError:
+        points = []
+    if not ai_configured():
+        result = local_suggestions(path)
+        result["jobId"] = job_id
+        return result
+    try:
+        result = analyze_with_ai(path, {
+            "英文商品名": name.strip(),
+            "中文商品名": feature.strip(),
+            "用户卖点": "；".join(str(point).strip() for point in points[:3] if str(point).strip()),
+            "品牌口号": footer.strip(),
+            "右上标签": launch_text.strip(),
+            "徽章文字": badge_text.strip(),
+        })
+        result["jobId"] = job_id
+        return result
+    except Exception as error:
+        raise HTTPException(502, f"AI文案生成失败：{error}") from error
+
+
+@app.post("/api/copy/refine")
+def refine_copy(payload: dict[str, Any]):
+    """根据用户意见仅调整一组文案，其他候选不变。"""
+    job_id = str(payload.get("jobId", ""))
+    current = payload.get("current")
+    instruction = str(payload.get("instruction", "")).strip()
+    if not isinstance(current, dict) or not instruction:
+        raise HTTPException(400, "需要当前文案和修改意见。")
+    if not ai_configured():
+        raise HTTPException(503, "尚未配置视觉模型，暂时无法按意见修改。")
+    try:
+        result = refine_with_ai(_job_product_path(job_id), current, instruction)
+        result["jobId"] = job_id
+        return result
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(502, f"AI文案修改失败：{error}") from error
+
+
 @app.post("/api/generate")
 async def generate(
     image: UploadFile = File(...),
@@ -291,10 +395,13 @@ async def generate(
     subtitle: str | None = Form(None),
     name: str | None = Form(None),
     feature: str = Form(""),
-    vibe: str = Form(""),
+    selling_points: str = Form("[]"),
+    left_detail: str = Form(""),
+    right_detail: str = Form(""),
+    footer: str = Form(""),
+    launch_text: str = Form("新品上市"),
+    badge_text: str = Form("NEW!"),
     price: str = Form(""),
-    style: str = Form("minimal"),
-    background_provider: str = Form("auto"),
 ):
     suffix = Path(image.filename or "product.png").suffix.lower()
     if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
@@ -307,40 +414,39 @@ async def generate(
     try:
         resolved_title = (title or name or "新品上市").strip()
         resolved_subtitle = (subtitle or feature or "让美好融入日常").strip()
+        try:
+            parsed_points = json.loads(selling_points)
+        except json.JSONDecodeError as error:
+            raise ValueError("selling_points 必须是 JSON 数组。") from error
+        if not isinstance(parsed_points, list):
+            raise ValueError("selling_points 必须是 JSON 数组。")
+        normalized_points = [str(point).strip()[:60] for point in parsed_points if str(point).strip()][:3]
+        if not normalized_points:
+            normalized_points = [point.strip() for point in (left_detail, right_detail) if point.strip()][:3]
         product_path = job_dir / "product_cutout.png"
         product = cutout(source, product_path)
         features = extract_product_features(product)
-        templates = load_templates()
-        ranked = sorted(
-            (
-                (item, make_candidate(item, product, resolved_title, resolved_subtitle, style))
-                for item in templates
-            ),
-            key=lambda pair: pair[1]["score"],
-            reverse=True,
-        )[:1]
         mean = tuple(features["mean_rgb"])
-        prompt = (
-            f"commercial product poster background for {resolved_title}, {style} style, "
-            f"campaign mood {vibe or 'general'}, visible feature {feature or 'unspecified'}, "
-            f"dominant color rgb{mean}, elegant abstract shapes, clean premium composition, "
-            "generous negative space, no product, no bottle, no text, no letters, no logo"
+        background_path = job_dir / "learned_background.jpg"
+        build_style_background(background_path, adaptive_palette(mean), product)
+        document = create_document(
+            job_id=job_id,
+            product_url=_public(product_path),
+            background_url=_public(background_path),
+            product_size=product.size,
+            mean_rgb=mean,
+            title=resolved_title,
+            feature=resolved_subtitle,
+            price=price,
+            selling_points=normalized_points,
+            footer=footer,
+            launch_text=launch_text,
+            badge_text=badge_text,
         )
-        documents = []
-        for index, (template, candidate) in enumerate(ranked):
-            background_path = job_dir / f"background_{index}.jpg"
-            _, provider = build_background(
-                background_path, CANVAS, mean, index, prompt, background_provider
-            )
-            document = _document(
-                job_id, index, template, candidate, _public(product_path),
-                _public(background_path), resolved_title, resolved_subtitle, price, provider,
-            )
-            preview_path = job_dir / f"preview_{index}.jpg"
-            _render(document).save(preview_path, quality=92)
-            document["previewUrl"] = _public(preview_path)
-            documents.append(document)
-        documents.sort(key=lambda item: item["quality"]["overall"], reverse=True)
+        preview_path = job_dir / "preview_learned.jpg"
+        _render(document).save(preview_path, quality=94)
+        document["previewUrl"] = _public(preview_path)
+        documents = [document]
         (job_dir / "documents.json").write_text(
             json.dumps(documents, ensure_ascii=False, indent=2), encoding="utf-8"
         )
@@ -349,8 +455,10 @@ async def generate(
             "input": {
                 "name": resolved_title,
                 "feature": feature,
-                "vibe": vibe,
-                "style": style,
+                "sellingPoints": normalized_points,
+                "footer": footer,
+                "launchText": launch_text,
+                "badgeText": badge_text,
                 "price": price,
             },
             "productFeatures": features,

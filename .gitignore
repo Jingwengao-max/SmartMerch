@@ -1,14 +1,16 @@
 node_modules
 dist
 .DS_Store
+Thumbs.db
+__pycache__/
+*.py[cod]
+*.log
 *.local
 npm-debug.log*
 .npm-cache/
 .env
 
 # Python backend
-backend/__pycache__/
-backend/*.py[cod]
 backend/.venv/
 backend/.pytest_cache/
 backend/.uv-cache/

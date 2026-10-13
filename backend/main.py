@@ -2,8 +2,16 @@
 
 import argparse
 import json
+import os
 import shutil
+import sys
 from pathlib import Path
+
+# rembg -> pymatting imports numba while the module is initialized. Python
+# 3.14's pythoncore installation cannot create numba's source locator cache,
+# so the compatibility flag must be set before any indirect numba import.
+if sys.version_info >= (3, 14):
+    os.environ.setdefault("NUMBA_DISABLE_JIT", "1")
 
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
 

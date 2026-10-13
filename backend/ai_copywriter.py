@@ -13,13 +13,23 @@ from PIL import Image, ImageOps, ImageStat
 
 
 SYSTEM_PROMPT = """你是一名谨慎的电商视觉文案助手。先识别图片中的主要商品，再根据商品类别、可见颜色、
-造型和合理使用场景，生成3组与该商品直接相关的中文宣传文案。标题必须让人能联想到识别出的商品，
+造型和合理使用场景，生成3组与该商品直接相关的海报文案。标题必须让人能联想到识别出的商品，
 避免“质感新选”“今日上新”等与任何商品都适用的空泛标题。只描述图片中能够确认的信息；不得虚构
-品牌、价格、容量、材质、保温时长、医疗效果或其他无法从图片确认的参数。必须仅返回JSON，不要Markdown。格式：
+品牌、价格、容量、材质、保温时长、医疗效果或其他无法从图片确认的参数。如果用户提供了中文商品名，
+title 必须是它自然、简洁的英文翻译，subtitle 必须保留或轻微规范该中文名称。必须仅返回JSON，不要Markdown。格式：
 {"category":"具体商品类别","color":"主要颜色","visible_features":["可见特征1","可见特征2"],
 "scene":["场景1","场景2"],"confidence":0.0,"warning":"需要人工确认的内容","copywriting":[
-{"title":"2至10字商品宣传标题","subtitle":"8至24字、与商品相关的副标题"},
-{"title":"...","subtitle":"..."},{"title":"...","subtitle":"..."}]}"""
+{"title":"2至5个英文单词的商品英文名，只使用英文","subtitle":"4至12字中文商品名，只使用中文",
+"sellingPoints":["10至28字卖点1","10至28字卖点2","可选卖点3"],
+"footer":"8至24字底部品牌口号","launchText":"2至6字右上标签","badgeText":"2至8字符徽章文字"},
+{"title":"...","subtitle":"...","sellingPoints":["..."],"footer":"...","launchText":"...","badgeText":"..."},
+{"title":"...","subtitle":"...","sellingPoints":["..."],"footer":"...","launchText":"...","badgeText":"..."}]}"""
+
+REFINE_PROMPT = """你是一名谨慎的商品海报文案编辑。根据商品图片、当前文案和用户修改意见，只修改意见涉及的字段，
+其余字段必须原样保留。不得虚构品牌、价格、材质、容量、功效或参数。英文商品名只使用英文，中文商品名只使用中文，
+卖点最多3条。仅返回JSON，不要Markdown。格式：
+{"copywriting":[{"title":"英文商品名","subtitle":"中文商品名","sellingPoints":["卖点"],
+"footer":"品牌口号","launchText":"新品上市","badgeText":"NEW!"}],"warning":"需要人工确认的内容"}"""
 
 
 def configured() -> bool:
@@ -44,16 +54,27 @@ def _extract_json(text: str) -> dict[str, Any]:
 
 
 def _validate(payload: dict[str, Any]) -> dict[str, Any]:
-    options = payload.get("copywriting")
+    options = payload.get("copywriting", payload.get("variants"))
     if not isinstance(options, list) or not options:
         raise ValueError("AI结果缺少copywriting数组。")
     cleaned = []
     for item in options[:3]:
-        if isinstance(item, dict) and item.get("title") and item.get("subtitle"):
-            cleaned.append({
-                "title": str(item["title"])[:20],
-                "subtitle": str(item["subtitle"])[:40],
-            })
+        if isinstance(item, dict):
+            title = item.get("title", item.get("english_name", ""))
+            subtitle = item.get("subtitle", item.get("chinese_name", ""))
+            selling_points = item.get("sellingPoints", item.get("selling_points", []))
+            if not isinstance(selling_points, list):
+                selling_points = []
+            option = {
+                "title": str(title).strip()[:40],
+                "subtitle": str(subtitle).strip()[:20],
+                "sellingPoints": [str(point)[:60] for point in selling_points[:3] if str(point).strip()],
+                "footer": str(item.get("footer", ""))[:40],
+                "launchText": str(item.get("launchText", item.get("launch_text", "")))[:12],
+                "badgeText": str(item.get("badgeText", item.get("badge_text", "")))[:12],
+            }
+            if option["title"] or option["subtitle"]:
+                cleaned.append(option)
     if not cleaned:
         raise ValueError("AI没有生成可用文案。")
     payload["copywriting"] = cleaned
@@ -66,8 +87,7 @@ def _validate(payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def analyze_with_ai(path: Path) -> dict[str, Any]:
-    """调用用户配置的视觉模型，不在代码中保存密钥。"""
+def _call_ai(path: Path, system_prompt: str, user_text: str) -> dict[str, Any]:
     import requests
 
     endpoint = os.environ["AI_API_URL"].strip().rstrip("/")
@@ -81,9 +101,9 @@ def analyze_with_ai(path: Path) -> dict[str, Any]:
         "temperature": 0.7,
         "response_format": {"type": "json_object"},
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": [
-                {"type": "text", "text": "识别这张商品图并生成三组真实、克制的宣传文案。"},
+                {"type": "text", "text": user_text},
                 {"type": "image_url", "image_url": {"url": _data_url(path)}},
             ]},
         ],
@@ -104,6 +124,27 @@ def analyze_with_ai(path: Path) -> dict[str, Any]:
     if isinstance(text, list):
         text = "".join(str(item.get("text", "")) for item in text if isinstance(item, dict))
     return _validate(_extract_json(text))
+
+
+def analyze_with_ai(path: Path, known: dict[str, Any] | None = None) -> dict[str, Any]:
+    """识别商品并生成适配当前学习版式的三组可编辑文案。"""
+    facts = known or {}
+    lines = [f"- {key}：{value}" for key, value in facts.items() if value]
+    known_text = "\n".join(lines) if lines else "- 用户尚未填写商品资料"
+    return _call_ai(
+        path,
+        SYSTEM_PROMPT,
+        "识别商品并生成三组真实、克制的宣传文案。\n【用户已知信息】\n" + known_text,
+    )
+
+
+def refine_with_ai(path: Path, current: dict[str, Any], instruction: str) -> dict[str, Any]:
+    """根据一句自然语言意见修改一组文案，未提及字段保持原样。"""
+    user_text = (
+        "【当前文案】\n" + json.dumps(current, ensure_ascii=False)
+        + "\n【修改意见】\n" + instruction.strip()
+    )
+    return _call_ai(path, REFINE_PROMPT, user_text)
 
 
 def local_suggestions(path: Path) -> dict[str, Any]:
@@ -127,10 +168,6 @@ def local_suggestions(path: Path) -> dict[str, Any]:
         "scene": ["日常", "分享"],
         "confidence": 0,
         "warning": "尚未配置视觉AI，当前仅按图片颜色生成通用文案，请人工填写准确商品信息。",
-        "copywriting": [
-            {"title": "质感新选", "subtitle": "简约设计，为日常增添一份美好"},
-            {"title": "恰好心动", "subtitle": "清新配色，遇见属于你的生活灵感"},
-            {"title": "今日上新", "subtitle": "用精致设计，点亮每一个平常时刻"},
-        ],
+        "copywriting": [],
         "source": "local_fallback",
     }

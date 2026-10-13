@@ -1,18 +1,18 @@
 # AI商品海报工作室
 
-SmartMerch 的海报生成后端，实现“商品照片 → 自动抠图 → 背景生成 → 候选排版 → 质量评分 → 高清导出”闭环。
+SmartMerch 的海报生成后端，实现“商品照片 → 自动抠图 → 参考样式学习 → 自适应排版 → 分层编辑 → 高清导出”闭环。
 
 ## 当前功能
 
 - 上传 PNG、JPG、WEBP 商品照片
 - 普通照片通过 rembg 自动抠图，透明 PNG 直接使用
 - 分析商品长宽比、形态、平均色和亮度
-- 使用三套 JSON 模板生成候选布局
-- 默认使用商品颜色生成稳定的本地背景
-- 可选调用独立的 PosterCraft 背景服务
-- 检查安全边距、遮挡、可读性、平衡和商品突出程度
-- 后端按 1080×1350 输出高清 PNG
-- 记录用户最终选择，为后续模板推荐模型收集数据
+- 从 4 张参考海报的区域标注中训练小样本版式先验
+- 根据新商品的长宽比与主色自动调整商品尺寸、强调色和柔和背景色
+- 根据商品抠图轮廓自动生成同色简笔画装饰
+- 生成超大标题、中央商品、NEW 徽章、最多三条卖点和波浪底栏等可编辑图层
+- 后端按 1080×1440（3:4）输出高清 PNG
+- 编辑器预览与 PNG 导出统一使用 LXGW WenKai 字体
 
 ## 一键启动
 
@@ -35,7 +35,7 @@ py -m uvicorn api:app --host 127.0.0.1 --port 8000 --reload
 
 ## AI商品识别与文案
 
-页面既支持手动填写，也提供“AI识别商品并生成文案”按钮。未配置接口时只返回安全的本地通用文案，不会假装识别商品。
+页面既支持手动填写，也支持视觉模型识别商品并生成多组候选文案。用户输入中文商品名后，可点击“AI 翻译并推荐”自动生成英文标题；中文名、英文名、卖点、底部口号等内容仍可人工修改。每组候选还支持输入修改意见，由模型只重写该组建议。未配置接口时使用安全的本地通用建议，不会假装识别商品。
 
 配置支持图片输入的OpenAI兼容接口：
 
@@ -58,51 +58,39 @@ $env:AI_MODEL="qwen3-vl-plus"
 
 也可以换成任何支持 `chat/completions`、Base64图片和JSON输出的视觉模型。
 
-## 模板背景图库
+## 训练参考版式
 
-“内置本地背景”由本项目根据商品颜色程序化生成，并非poster-design素材。“模板图库”会读取 `backgrounds` 文件夹中的PNG/JPG/WEBP图片。可以把获得授权的纯背景导出到该目录；若目录为空，系统自动回退到内置背景。
+当前训练集位于 `training/reference_posters/`，区域与配色标注位于 `training/layout_annotations.json`。四张样本不足以可靠微调扩散模型，因此当前采用可解释的小样本统计模型：训练脚本学习各版式区域的归一化坐标和配色角色，输出 `models/bakery_editorial_layout.json`。
 
-## PosterCraft接入方式
-
-系统在没有PosterCraft时也能完整运行，背景引擎会自动回退为本地生成。
-
-当PosterCraft部署在GPU服务器后，为它增加一个HTTP接口。接口接收：
-
-```json
-{"prompt": "commercial product poster background ..."}
-```
-
-返回以下任意一种结果：
-
-1. 响应正文直接返回 `image/png` 或 `image/jpeg`；
-2. JSON返回 `{"image_base64": "..."}`。
-
-启动本系统前配置接口地址：
+重新训练：
 
 ```powershell
-$env:POSTERCRAFT_URL="http://GPU服务器地址:端口/generate"
-py -m uvicorn api:app --host 127.0.0.1 --port 8000
+cd backend
+py train_layout_model.py
 ```
 
-网页选择“自动”时优先调用PosterCraft，失败自动使用本地背景；选择“仅PosterCraft”时，失败会显示错误。
+增加参考海报时，将图片放入 `training/reference_posters/`，并在标注文件中增加同名样本及 9 个区域。重新运行训练脚本即可更新模型，无需修改生成代码。
 
 ## SmartMerch 集成
 
-SmartMerch 前端使用 `image、name、feature、vibe、style`；生成接口已经兼容这些字段，同时保留旧版 `title、subtitle` 字段。新增 `/api/cutout` 供上传步骤真正执行抠图，Vite 默认开发地址已加入跨域白名单。
+SmartMerch 前端使用 `image、name、feature、selling_points、footer、launch_text、badge_text`。`selling_points` 最多包含 3 条，后端按实际数量动态分配版面位置。视觉模型只返回文案建议，用户在生成前和图层编辑阶段都可以修改；生成接口同时保留旧版 `title、subtitle、style、left_detail、right_detail` 字段以兼容旧调用方。`/api/cutout` 供上传步骤执行抠图，Vite 默认开发地址已加入跨域白名单。
 
-前端暂不随本目录上传，`web/` 已加入 `.gitignore`。运行时图片、反馈数据、模型缓存以及 `vendor/poster-design` 第三方源码同样不会进入仓库。
+运行时图片、反馈数据、模型缓存以及 `vendor/poster-design` 第三方源码不会进入仓库。
 
 ## 目录说明
 
 ```text
 poster_project/
 ├── api.py                   Web API与高清渲染
-├── background_provider.py   本地/PosterCraft背景适配器
-├── layout_engine.py         模板候选生成与布局评分
-├── quality_evaluator.py     海报质量评价
+├── learned_layout.py        学习版式的实例化与自适应配色
+├── train_layout_model.py    小样本版式训练脚本
+├── models/                  训练后的版式模型
+├── training/                参考海报与区域标注
+├── layout_engine.py         共用画布、字体与商品特征提取
+├── quality_evaluator.py     可选的海报质量实验接口
 ├── main.py                  原命令行生成程序
 ├── record_feedback.py       原命令行反馈记录
-├── templates/               三套版式模板
+├── templates/               旧版模板（仅保留兼容，不再用于主生成接口）
 ├── API_CONTRACT.md          SmartMerch 前后端字段约定
 ├── .env.example             环境变量示例，不包含真实密钥
 ├── generated/               Web生成文件（运行后创建）
@@ -118,7 +106,7 @@ py -m unittest -v
 
 ## 与 poster-design 的关系
 
-当前编辑器按poster-design的核心交互拆出了分层画布、拖动、缩放控制点、图层面板、删除、撤销/重做、模板JSON导入导出、属性编辑和服务端出图。候选方案继续由后端评分排序，但分数和评分细节不在前端展示。
+当前编辑器参考 poster-design 的核心交互，实现了分层画布、拖动、缩放控制点、图层面板、删除、撤销/重做、属性编辑和服务端出图。主生成链路只输出一套学习版式，不在前端展示实验评分。
 
 poster-design 是可选本地模板源，源码放在 `vendor/poster-design` 时后端可读取其种子模板库。该目录默认不上传；若未来分发或部署其代码，需要遵守 AGPL-3.0-or-later 许可证。
 

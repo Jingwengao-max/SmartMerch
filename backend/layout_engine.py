@@ -6,14 +6,24 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageStat
 
 
-CANVAS = (1080, 1350)
+CANVAS = (1080, 1440)
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
+LXGW_WENKAI = (
+    Path(__file__).resolve().parent.parent
+    / "node_modules" / "@fontsource" / "lxgw-wenkai" / "files"
+    / "lxgw-wenkai-latin-500-normal.woff"
+)
 
 
-def load_font(size):
-    for path in ("C:/Windows/Fonts/msyh.ttc", "C:/Windows/Fonts/simhei.ttf", "C:/Windows/Fonts/simsun.ttc"):
+def load_font(size, weight=400):
+    for path in (
+        LXGW_WENKAI,
+        "C:/Windows/Fonts/simkai.ttf", "C:/Windows/Fonts/STKAITI.TTF",
+        "C:/Windows/Fonts/FZSTK.TTF", "C:/Windows/Fonts/msyh.ttc",
+        "C:/Windows/Fonts/simhei.ttf", "C:/Windows/Fonts/simsun.ttc",
+    ):
         if Path(path).exists():
-            return ImageFont.truetype(path, size)
+            return ImageFont.truetype(str(path), size)
     raise FileNotFoundError("找不到中文字体，请在 layout_engine.py 的 load_font() 中指定字体。")
 
 

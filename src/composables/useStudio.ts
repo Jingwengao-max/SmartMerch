@@ -1,29 +1,19 @@
 import { computed, reactive, ref } from 'vue'
 import {
-  analyzeCopy,
   assetUrl,
   cutoutProduct,
+  generateCopy,
   generatePosters,
+  refineCopy,
   type CopywritingOption,
   type PosterCandidate,
   type PosterDocument,
 } from '@/services/posterApi'
 
-export interface Style { key: string; name: string; en: string; desc: string; bg: string; fg: string }
-
 export const steps = [
   { no: '01', key: 'upload', title: '上传商品', en: 'Upload' },
-  { no: '02', key: 'info', title: '商品信息', en: 'Info' },
-  { no: '03', key: 'style', title: '设计风格', en: 'Style' },
-  { no: '04', key: 'generate', title: '生成作品', en: 'Generate' },
-]
-
-export const styles: Style[] = [
-  { key: 'natural', name: '自然', en: 'Natural', desc: '清新、有机、贴近自然', bg: '#7b8a72', fg: '#f6f3ec' },
-  { key: 'minimal', name: '极简', en: 'Minimal', desc: '留白、克制、干净', bg: '#efe9de', fg: '#2b2723' },
-  { key: 'retro', name: '复古', en: 'Retro', desc: '怀旧、温暖、有年代感', bg: '#a87e52', fg: '#f6f3ec' },
-  { key: 'festive', name: '节日', en: 'Festive', desc: '喜庆、热闹、有氛围', bg: '#c08b62', fg: '#fff8ee' },
-  { key: 'tech', name: '科技', en: 'Tech', desc: '简洁、未来、理性', bg: '#4e5c46', fg: '#f6f3ec' },
+  { no: '02', key: 'copy', title: '确认文案', en: 'Copy' },
+  { no: '03', key: 'generate', title: '生成作品', en: 'Generate' },
 ]
 
 export const genSteps = ['识别商品主体', '寻找视觉方向', '生成场景', '完成排版']
@@ -37,10 +27,13 @@ const state = reactive({
   removing: false,
   bgRemoved: false,
   analyzing: false,
+  refiningIndex: -1,
   name: '',
   feature: '',
-  vibe: '',
-  style: null as string | null,
+  sellingPoints: ['', '', ''] as string[],
+  footer: '',
+  launchText: '新品上市',
+  badgeText: 'NEW!',
   copywriting: [] as CopywritingOption[],
   aiWarning: '',
   generating: false,
@@ -53,12 +46,10 @@ const state = reactive({
 })
 
 const step = ref(0)
-const selectedStyle = computed<Style | null>(() => styles.find((item) => item.key === state.style) ?? null)
 const selectedCandidate = computed<PosterCandidate | null>(() => state.candidates[state.selectedCandidateIndex] ?? null)
 const canNext = computed(() => {
   if (step.value === 0) return !!state.sourceFile && state.bgRemoved && !state.removing
-  if (step.value === 1) return state.name.trim().length > 0
-  if (step.value === 2) return !!state.style
+  if (step.value === 1) return state.name.trim().length > 0 && state.feature.trim().length > 0
   return false
 })
 
@@ -72,7 +63,9 @@ async function setFile(file: File) {
     cutoutUrl: '',
     bgRemoved: false,
     removing: true,
-    analyzing: true,
+    analyzing: false,
+    refiningIndex: -1,
+    copywriting: [],
     generated: false,
     candidates: [],
     error: '',
@@ -80,11 +73,12 @@ async function setFile(file: File) {
   })
 
   const cutoutTask = cutoutProduct(file)
-    .then((result) => {
+    .then(async (result) => {
       state.jobId = result.jobId
       state.cutoutUrl = assetUrl(result.cutoutUrl)
       state.image = state.cutoutUrl
       state.bgRemoved = true
+      await generateCopySuggestions()
     })
     .catch((error: Error) => {
       state.error = error.message
@@ -92,26 +86,67 @@ async function setFile(file: File) {
     })
     .finally(() => (state.removing = false))
 
-  const analysisTask = analyzeCopy(file)
-    .then((result) => {
-      state.copywriting = result.copywriting
-      if (!state.name && result.category !== '待人工确认的商品') state.name = result.category
-      if (!state.feature) state.feature = result.visible_features?.join('，') || result.copywriting[0]?.subtitle || ''
-      state.aiWarning = result.warning
-    })
-    .catch(() => {
-      state.aiWarning = ''
-    })
-    .finally(() => (state.analyzing = false))
-
-  await Promise.allSettled([cutoutTask, analysisTask])
+  await cutoutTask
 }
 
-function next() { if (canNext.value && step.value < 3) step.value++ }
+function next() { if (canNext.value && step.value < 2) step.value++ }
 function back() { if (step.value > 0 && !state.generating) step.value-- }
 function goTo(index: number) { if (index >= 0 && index <= step.value && !state.generating) step.value = index }
-function selectStyle(key: string) { state.style = key }
-function applyCopywriting(option: CopywritingOption) { state.name = option.title; state.feature = option.subtitle }
+function applyCopywriting(option: CopywritingOption) {
+  state.name = option.title
+  state.feature = option.subtitle
+  if (option.sellingPoints?.length) {
+    state.sellingPoints = [...option.sellingPoints.slice(0, 3), '', ''].slice(0, 3)
+  }
+  state.footer = option.footer || state.footer
+  state.launchText = option.launchText || state.launchText
+  state.badgeText = option.badgeText || state.badgeText
+}
+
+async function generateCopySuggestions(applyEnglish = false) {
+  if (!state.jobId || state.analyzing) return
+  state.analyzing = true
+  state.error = ''
+  try {
+    const result = await generateCopy({
+      jobId: state.jobId,
+      name: state.name,
+      feature: state.feature,
+      sellingPoints: state.sellingPoints,
+      footer: state.footer,
+      launchText: state.launchText,
+      badgeText: state.badgeText,
+    })
+    state.copywriting = result.copywriting
+    state.aiWarning = result.warning
+    const first = result.copywriting[0]
+    if (first) {
+      if (applyEnglish || !state.name.trim()) state.name = first.title
+      if (!state.feature.trim()) state.feature = first.subtitle
+    }
+  } catch (error) {
+    state.error = error instanceof Error ? error.message : '文案生成失败。'
+  } finally {
+    state.analyzing = false
+  }
+}
+
+async function refineCopywriting(index: number, instruction: string) {
+  const current = state.copywriting[index]
+  if (!current || !instruction.trim() || state.refiningIndex >= 0) return
+  state.refiningIndex = index
+  state.error = ''
+  try {
+    const result = await refineCopy({ jobId: state.jobId, current, instruction })
+    const refined = result.copywriting[0]
+    if (refined) state.copywriting[index] = refined
+    state.aiWarning = result.warning
+  } catch (error) {
+    state.error = error instanceof Error ? error.message : '按意见修改失败。'
+  } finally {
+    state.refiningIndex = -1
+  }
+}
 function selectCandidate(index: number) {
   if (index >= 0 && index < state.candidates.length) {
     state.selectedCandidateIndex = index
@@ -121,7 +156,7 @@ function selectCandidate(index: number) {
 function updateEditorDocument(document: PosterDocument) { state.editorDocument = document }
 
 async function startGenerate() {
-  if (state.generating || !state.sourceFile || !state.style) return
+  if (state.generating || !state.sourceFile || !state.name.trim()) return
   state.generating = true
   state.generated = false
   state.genStep = 0
@@ -134,8 +169,10 @@ async function startGenerate() {
       image: state.sourceFile,
       name: state.name,
       feature: state.feature,
-      vibe: state.vibe,
-      style: state.style,
+      sellingPoints: state.sellingPoints,
+      footer: state.footer,
+      launchText: state.launchText,
+      badgeText: state.badgeText,
     })
     state.jobId = result.jobId
     state.candidates = result.candidates.map((item) => ({ ...item, previewUrl: assetUrl(item.previewUrl) }))
@@ -157,7 +194,8 @@ function reset() {
   if (state.image?.startsWith('blob:')) URL.revokeObjectURL(state.image)
   Object.assign(state, {
     sourceFile: null, image: null, imageName: '', cutoutUrl: '', jobId: '', removing: false,
-    bgRemoved: false, analyzing: false, name: '', feature: '', vibe: '', style: null,
+    bgRemoved: false, analyzing: false, refiningIndex: -1, name: '', feature: '',
+    sellingPoints: ['', '', ''], footer: '', launchText: '新品上市', badgeText: 'NEW!',
     copywriting: [], aiWarning: '', generating: false, genStep: -1, generated: false,
     candidates: [], editorDocument: null, selectedCandidateIndex: 0, error: '',
   })
@@ -166,8 +204,9 @@ function reset() {
 
 export function useStudio() {
   return {
-    steps, styles, genSteps, state, step, selectedStyle, selectedCandidate, canNext,
-    setFile, next, back, goTo, selectStyle, applyCopywriting, selectCandidate,
+    steps, genSteps, state, step, selectedCandidate, canNext,
+    setFile, next, back, goTo, applyCopywriting, generateCopySuggestions,
+    refineCopywriting, selectCandidate,
     updateEditorDocument, startGenerate, reset,
   }
 }

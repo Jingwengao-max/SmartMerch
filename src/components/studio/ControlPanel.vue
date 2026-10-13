@@ -1,28 +1,26 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { reactive, ref } from 'vue'
 import { useStudio } from '@/composables/useStudio'
 
 const {
   state,
   step,
   steps,
-  styles,
   genSteps,
   canNext,
-  selectedStyle,
   next,
   back,
-  selectStyle,
   applyCopywriting,
+  generateCopySuggestions,
+  refineCopywriting,
   selectCandidate,
   startGenerate,
   reset,
   setFile,
 } = useStudio()
 
-const vibeOptions = ['上新', '节日', '品牌', '种草', '清仓']
-
 const fileInput = ref<HTMLInputElement | null>(null)
+const copyFeedback = reactive<Record<number, string>>({})
 function openPicker() {
   fileInput.value?.click()
 }
@@ -31,6 +29,15 @@ function onPick(e: Event) {
   const f = target.files?.[0]
   if (f) setFile(f)
   target.value = ''
+}
+function onChineseBlur() {
+  if (state.feature.trim()) generateCopySuggestions(true)
+}
+async function onRefine(index: number) {
+  const instruction = copyFeedback[index]?.trim()
+  if (!instruction) return
+  await refineCopywriting(index, instruction)
+  copyFeedback[index] = ''
 }
 </script>
 
@@ -50,9 +57,7 @@ function onPick(e: Event) {
     <div class="flex-1 overflow-y-auto px-7 py-6">
       <!-- 0 上传 -->
       <div v-if="step === 0" class="space-y-5">
-        <p class="text-sm leading-relaxed text-ink-soft">
-          把商品照片放到画布上，AI 会自动识别主体并去除背景。
-        </p>
+        <p class="text-sm leading-relaxed text-ink-soft">上传一张主体清晰的商品照片。</p>
         <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="onPick" />
         <button type="button" class="btn-rect" @click="openPicker">
           {{ state.image ? '更换图片' : '选择图片' }}
@@ -67,85 +72,100 @@ function onPick(e: Event) {
         <div v-else-if="state.bgRemoved" class="flex items-center gap-2 text-sm text-sage">
           <span class="font-mono">✓</span> 已识别商品主体 · 背景已去除
         </div>
-        <p v-if="state.analyzing" class="text-sm text-ink-soft">正在识别商品并生成文案…</p>
         <p v-if="state.error" class="text-sm text-red-700">{{ state.error }}</p>
       </div>
 
       <!-- 1 信息 -->
-      <div v-else-if="step === 1" class="space-y-8">
+      <div v-else-if="step === 1" class="space-y-6">
         <label class="block">
-          <p class="font-display text-lg leading-snug">这件商品叫什么？</p>
-          <input v-model="state.name" class="field-input mt-3" placeholder="例如：手工陶瓷杯" />
-        </label>
-        <div v-if="state.copywriting.length" class="space-y-2">
-          <p class="text-sm text-ink-soft">AI 文案建议</p>
-          <button
-            v-for="item in state.copywriting"
-            :key="item.title + item.subtitle"
-            type="button"
-            class="w-full border border-warm-300 px-3 py-2 text-left hover:border-ink"
-            @click="applyCopywriting(item)"
-          >
-            <strong class="block text-sm">{{ item.title }}</strong>
-            <span class="text-xs text-ink-faint">{{ item.subtitle }}</span>
-          </button>
-        </div>
-        <label class="block">
-          <p class="font-display text-lg leading-snug">它最特别的地方是什么？</p>
-          <textarea
+          <p class="font-display text-lg leading-snug">中文商品名</p>
+          <input
             v-model="state.feature"
-            class="field-textarea mt-3"
-            placeholder="例如：手工拉坯，每一只都独一无二"
-          ></textarea>
+            class="field-input mt-3"
+            placeholder="例如：草莓奶油丹麦"
+            @blur="onChineseBlur"
+          />
         </label>
-        <div>
-          <p class="font-display text-lg leading-snug">你希望它传达什么感觉？</p>
-          <div class="mt-4 flex flex-wrap gap-2">
+        <label class="block">
+          <div class="flex items-center justify-between gap-3">
+            <p class="font-display text-lg leading-snug">英文商品名</p>
             <button
-              v-for="v in vibeOptions"
-              :key="v"
               type="button"
-              class="border px-3 py-1.5 text-sm transition-colors"
-              :class="state.vibe === v ? 'border-ink bg-ink text-paper' : 'border-warm-300 text-ink-soft hover:border-ink'"
-              @click="state.vibe = state.vibe === v ? '' : v"
-            >
-              {{ v }}
+              class="text-xs text-sage disabled:opacity-40"
+              :disabled="state.analyzing || !state.feature.trim()"
+              @click="generateCopySuggestions(true)"
+            >{{ state.analyzing ? '生成中…' : 'AI 翻译并推荐' }}</button>
+          </div>
+          <input v-model="state.name" class="field-input mt-3" placeholder="例如：Strawberry Danish" />
+        </label>
+        <div v-if="state.copywriting.length" class="space-y-3">
+          <p class="text-sm text-ink-soft">AI 文案建议（选择后仍可修改）</p>
+          <div
+            v-for="(item, index) in state.copywriting"
+            :key="`${index}-${item.title}-${item.subtitle}`"
+            class="border border-warm-300 p-3"
+          >
+            <button type="button" class="w-full text-left" @click="applyCopywriting(item)">
+              <strong class="block text-sm">{{ item.title }}</strong>
+              <span class="mt-1 block text-xs text-ink-soft">{{ item.subtitle }}</span>
+              <span v-if="item.sellingPoints?.length" class="mt-2 block text-[11px] leading-relaxed text-ink-faint">
+                {{ item.sellingPoints.join(' · ') }}
+              </span>
             </button>
+            <div class="mt-3 flex gap-2 border-t border-warm-300 pt-3">
+              <input
+                v-model="copyFeedback[index]"
+                class="field-input min-w-0 flex-1 text-xs"
+                placeholder="例如：英文名短一些"
+                @keyup.enter="onRefine(index)"
+              />
+              <button
+                type="button"
+                class="btn-rect whitespace-nowrap px-2 py-1 text-xs"
+                :disabled="state.refiningIndex >= 0"
+                @click="onRefine(index)"
+              >{{ state.refiningIndex === index ? '修改中…' : '按意见修改' }}</button>
+            </div>
           </div>
         </div>
+        <div class="space-y-3">
+          <div>
+            <p class="font-display text-lg leading-snug">商品卖点</p>
+            <p class="mt-1 text-xs text-ink-faint">最多填写 3 条，系统会根据实际数量自动调整位置。</p>
+          </div>
+          <label v-for="(_, index) in state.sellingPoints" :key="index" class="block">
+            <span class="text-xs text-ink-soft">卖点 {{ index + 1 }}</span>
+            <textarea
+              v-model="state.sellingPoints[index]"
+              class="field-textarea mt-1"
+              :placeholder="index === 0 ? '例如：精选新鲜草莓，搭配香滑奶油' : index === 1 ? '例如：层层起酥，外脆内软' : '选填第三条卖点'"
+              maxlength="60"
+            ></textarea>
+          </label>
+        </div>
+        <label class="block">
+          <p class="font-display text-lg leading-snug">底部品牌口号</p>
+          <input v-model="state.footer" class="field-input mt-3" placeholder="例如：现做现卖 · 美味看得见" />
+        </label>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="block">
+            <p class="text-sm text-ink-soft">右上标签</p>
+            <input v-model="state.launchText" class="field-input mt-2" placeholder="新品上市" />
+          </label>
+          <label class="block">
+            <p class="text-sm text-ink-soft">徽章文字</p>
+            <input v-model="state.badgeText" class="field-input mt-2" placeholder="NEW!" />
+          </label>
+        </div>
       </div>
 
-      <!-- 2 风格 -->
-      <div v-else-if="step === 2" class="space-y-3">
-        <p class="text-sm leading-relaxed text-ink-soft">为这件商品选一种气质。</p>
-        <button
-          v-for="s in styles"
-          :key="s.key"
-          type="button"
-          class="flex w-full items-center gap-4 border px-4 py-3.5 text-left transition-colors"
-          :class="state.style === s.key ? 'border-ink' : 'border-warm-300 hover:border-ink/50'"
-          @click="selectStyle(s.key)"
-        >
-          <span class="flex gap-1.5">
-            <span class="h-5 w-5 rounded-full border border-black/10" :style="{ background: s.bg }"></span>
-            <span class="h-5 w-5 rounded-full border border-black/10" :style="{ background: s.fg }"></span>
-          </span>
-          <span class="flex-1">
-            <span class="block font-display text-lg leading-tight">{{ s.name }}</span>
-            <span class="mt-0.5 block text-sm text-ink-soft">{{ s.desc }}</span>
-          </span>
-          <span class="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-faint">{{ s.en }}</span>
-        </button>
-      </div>
-
-      <!-- 3 生成 -->
+      <!-- 2 生成 -->
       <div v-else class="space-y-5">
         <template v-if="!state.generating && !state.generated">
           <p class="text-sm leading-relaxed text-ink-soft">一切就绪，让 AI 开始为它创作。</p>
           <div class="space-y-1.5 border-t border-warm-300 pt-4 text-sm text-ink-soft">
             <p>商品：{{ state.name || '—' }}</p>
-            <p>风格：{{ selectedStyle?.name ?? '—' }}</p>
-            <p>方向：{{ state.vibe || '未指定' }}</p>
+            <p>核心文案：{{ state.feature || '未填写' }}</p>
           </div>
         </template>
 
@@ -190,7 +210,7 @@ function onPick(e: Event) {
 
     <!-- 底部操作 -->
     <div class="shrink-0 border-t border-warm-300 px-7 py-5">
-      <div v-if="step < 3" class="flex items-center gap-3">
+      <div v-if="step < 2" class="flex items-center gap-3">
         <button v-if="step > 0" type="button" class="btn-rect" @click="back">上一步</button>
         <button type="button" class="btn-cta flex-1" :disabled="!canNext" :class="{ 'opacity-40': !canNext }" @click="next">
           下一步
@@ -207,8 +227,8 @@ function onPick(e: Event) {
           开始生成
         </button>
         <div v-else-if="state.generated" class="flex gap-3">
-          <button type="button" class="btn-rect flex-1" @click="startGenerate">重新生成</button>
-          <button type="button" class="btn-cta flex-1" @click="reset">重新开始</button>
+          <button type="button" class="btn-rect min-w-0 flex-1 whitespace-nowrap px-4" @click="startGenerate">重新生成</button>
+          <button type="button" class="btn-cta min-w-0 flex-1 whitespace-nowrap px-4 text-[1.15rem]" @click="reset">重新开始</button>
         </div>
         <div v-else class="text-center text-sm text-ink-faint">创作中…</div>
       </div>

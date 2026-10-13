@@ -12,6 +12,26 @@ from quality_evaluator import evaluate_document
 
 
 class PosterPipelineTests(unittest.TestCase):
+    def test_visual_copy_contract_matches_current_poster(self):
+        from ai_copywriter import _validate
+
+        result = _validate({
+            "category": "丹麦酥",
+            "copywriting": [{
+                "english_name": "Strawberry Danish",
+                "chinese_name": "草莓奶油丹麦",
+                "selling_points": ["新鲜草莓", "层层起酥", "奶油香滑", "不会进入海报"],
+                "footer": "现烤现卖",
+                "launch_text": "新品上市",
+                "badge_text": "NEW!",
+            }],
+        })
+        option = result["copywriting"][0]
+        self.assertEqual(option["title"], "Strawberry Danish")
+        self.assertEqual(option["subtitle"], "草莓奶油丹麦")
+        self.assertEqual(len(option["sellingPoints"]), 3)
+        self.assertEqual(option["launchText"], "新品上市")
+
     def test_transparent_input_and_layout(self):
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "product.png"
@@ -36,7 +56,34 @@ class PosterPipelineTests(unittest.TestCase):
             for option in options:
                 self.assertEqual(option["score"], option["score"])  # 非 NaN
             poster = render(product, max(options, key=lambda item: item["score"]), "粉色随行杯", "把喜欢的颜色带进每一天", "产品展示")
-            self.assertEqual(poster.size, (1080, 1350))
+            self.assertEqual(poster.size, (1080, 1440))
+
+    def test_learned_layout_model(self):
+        from learned_layout import adaptive_palette, create_document, load_model
+
+        model = load_model()
+        self.assertEqual(model["trainedSamples"], 4)
+        self.assertEqual(len(model["regions"]), 9)
+        document = create_document(
+            job_id="test",
+            product_url="/generated/test/product.png",
+            background_url="/generated/test/background.jpg",
+            product_size=(600, 500),
+            mean_rgb=(215, 95, 110),
+            title="Strawberry Danish",
+            feature="草莓奶油丹麦",
+            selling_points=["精选新鲜草莓", "层层起酥", "奶油香滑"],
+        )
+        self.assertEqual(document["templateId"], "learned-bakery-editorial-v1")
+        self.assertEqual(document["canvas"], {
+            "width": 1080,
+            "height": 1440,
+            "backgroundImage": "/generated/test/background.jpg",
+        })
+        selling_points = [item for item in document["elements"] if item.get("role") == "sellingPoint"]
+        self.assertEqual(len(selling_points), 3)
+        self.assertNotIn("footer-values", {item["id"] for item in document["elements"]})
+        self.assertIn("accent", adaptive_palette((215, 95, 110)))
 
     def test_quality_evaluator_detects_overlap(self):
         document = {

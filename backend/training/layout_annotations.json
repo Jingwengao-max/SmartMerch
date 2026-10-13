@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "canvasRatio": "3:4",
+  "examples": [
+    {
+      "image": "reference_posters/blueberry_bagel.jpg",
+      "palette": {"accent": "#69569a", "soft": "#b8c6dc", "paper": "#f8f3ec"},
+      "regions": {
+        "heroTitle": [0.05, 0.04, 0.76, 0.27],
+        "launch": [0.62, 0.15, 0.28, 0.08],
+        "cnTitle": [0.05, 0.27, 0.79, 0.10],
+        "product": [0.14, 0.40, 0.76, 0.46],
+        "leftCallout": [0.05, 0.36, 0.25, 0.12],
+        "leftDetail": [0.05, 0.72, 0.25, 0.13],
+        "rightDetail": [0.79, 0.75, 0.17, 0.11],
+        "badge": [0.73, 0.34, 0.23, 0.16],
+        "footer": [0.00, 0.87, 1.00, 0.13]
+      }
+    },
+    {
+      "image": "reference_posters/caramel_canele.jpg",
+      "palette": {"accent": "#9a3e05", "soft": "#f3bd55", "paper": "#fbf5ec"},
+      "regions": {
+        "heroTitle": [0.05, 0.04, 0.76, 0.27],
+        "launch": [0.62, 0.15, 0.28, 0.08],
+        "cnTitle": [0.05, 0.27, 0.79, 0.10],
+        "product": [0.14, 0.40, 0.76, 0.46],
+        "leftCallout": [0.05, 0.36, 0.25, 0.12],
+        "leftDetail": [0.05, 0.72, 0.25, 0.13],
+        "rightDetail": [0.79, 0.75, 0.17, 0.11],
+        "badge": [0.73, 0.34, 0.23, 0.16],
+        "footer": [0.00, 0.87, 1.00, 0.13]
+      }
+    },
+    {
+      "image": "reference_posters/pistachio_croissant.jpg",
+      "palette": {"accent": "#718d42", "soft": "#c9d5a5", "paper": "#faf6ed"},
+      "regions": {
+        "heroTitle": [0.05, 0.04, 0.76, 0.27],
+        "launch": [0.62, 0.15, 0.28, 0.08],
+        "cnTitle": [0.05, 0.27, 0.79, 0.10],
+        "product": [0.14, 0.40, 0.76, 0.46],
+        "leftCallout": [0.05, 0.36, 0.25, 0.12],
+        "leftDetail": [0.05, 0.72, 0.25, 0.13],
+        "rightDetail": [0.79, 0.75, 0.17, 0.11],
+        "badge": [0.73, 0.34, 0.23, 0.16],
+        "footer": [0.00, 0.87, 1.00, 0.13]
+      }
+    },
+    {
+      "image": "reference_posters/strawberry_danish.jpg",
+      "palette": {"accent": "#de5568", "soft": "#efbbc0", "paper": "#fbf5ee"},
+      "regions": {
+        "heroTitle": [0.05, 0.04, 0.76, 0.27],
+        "launch": [0.62, 0.15, 0.28, 0.08],
+        "cnTitle": [0.05, 0.27, 0.79, 0.10],
+        "product": [0.14, 0.40, 0.76, 0.46],
+        "leftCallout": [0.05, 0.36, 0.25, 0.12],
+        "leftDetail": [0.05, 0.72, 0.25, 0.13],
+        "rightDetail": [0.79, 0.75, 0.17, 0.11],
+        "badge": [0.73, 0.34, 0.23, 0.16],
+        "footer": [0.00, 0.87, 1.00, 0.13]
+      }
+    }
+  ]
+}

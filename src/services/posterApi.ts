@@ -1,6 +1,13 @@
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000').replace(/\/$/, '')
 
-export interface CopywritingOption { title: string; subtitle: string }
+export interface CopywritingOption {
+  title: string
+  subtitle: string
+  sellingPoints?: string[]
+  footer?: string
+  launchText?: string
+  badgeText?: string
+}
 export interface CopyAnalysis {
   category: string
   color: string
@@ -25,11 +32,15 @@ export interface PosterElement {
   zIndex: number
   fontSize?: number
   fontWeight?: number
+  fontFamily?: string
   color?: string
+  textAlign?: 'left' | 'center' | 'right'
+  verticalAlign?: 'top' | 'middle' | 'bottom'
 }
 export interface PosterDocument {
   id: string
   name: string
+  productName?: string
   templateId: string
   canvas: { width: number; height: number; backgroundImage?: string; backgroundColor?: string }
   elements: PosterElement[]
@@ -37,11 +48,18 @@ export interface PosterDocument {
 export interface PosterCandidate extends PosterDocument {
   previewUrl: string
   backgroundProvider: string
-  quality?: { overall: number }
 }
 export interface GenerateResult {
   jobId: string
-  input: { name: string; feature: string; vibe: string; style: string; price: string }
+  input: {
+    name: string
+    feature: string
+    sellingPoints: string[]
+    footer: string
+    launchText: string
+    badgeText: string
+    price: string
+  }
   candidates: PosterCandidate[]
 }
 
@@ -73,19 +91,59 @@ export async function analyzeCopy(file: File): Promise<CopyAnalysis> {
   )
 }
 
+export async function generateCopy(input: {
+  jobId: string
+  name: string
+  feature: string
+  sellingPoints: string[]
+  footer: string
+  launchText: string
+  badgeText: string
+}): Promise<CopyAnalysis & { jobId: string }> {
+  const body = new FormData()
+  body.append('jobId', input.jobId)
+  body.append('name', input.name)
+  body.append('feature', input.feature)
+  body.append('selling_points', JSON.stringify(input.sellingPoints.filter(Boolean).slice(0, 3)))
+  body.append('footer', input.footer)
+  body.append('launch_text', input.launchText)
+  body.append('badge_text', input.badgeText)
+  return parseResponse<CopyAnalysis & { jobId: string }>(
+    await fetch(`${API_BASE}/api/copy`, { method: 'POST', body })
+  )
+}
+
+export async function refineCopy(input: {
+  jobId: string
+  current: CopywritingOption
+  instruction: string
+}): Promise<CopyAnalysis & { jobId: string }> {
+  return parseResponse<CopyAnalysis & { jobId: string }>(
+    await fetch(`${API_BASE}/api/copy/refine`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+  )
+}
+
 export async function generatePosters(input: {
   image: File
   name: string
   feature: string
-  vibe: string
-  style: string
+  sellingPoints: string[]
+  footer: string
+  launchText: string
+  badgeText: string
 }): Promise<GenerateResult> {
   const body = new FormData()
   body.append('image', input.image)
   body.append('name', input.name)
   body.append('feature', input.feature)
-  body.append('vibe', input.vibe)
-  body.append('style', input.style)
+  body.append('selling_points', JSON.stringify(input.sellingPoints.filter((item) => item.trim()).slice(0, 3)))
+  body.append('footer', input.footer)
+  body.append('launch_text', input.launchText)
+  body.append('badge_text', input.badgeText)
   return parseResponse<GenerateResult>(
     await fetch(`${API_BASE}/api/generate`, { method: 'POST', body })
   )

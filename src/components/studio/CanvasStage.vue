@@ -4,16 +4,14 @@ import { useStudio } from '@/composables/useStudio'
 import PosterPreview from './PosterPreview.vue'
 import LayerEditor from './LayerEditor.vue'
 
-const { state, step, selectedStyle, selectedCandidate, setFile, updateEditorDocument } = useStudio()
+const { state, step, selectedCandidate, setFile, updateEditorDocument } = useStudio()
 
 const dragging = ref(false)
 
-const posterStyle = computed(() =>
-  selectedStyle.value ?? { bg: '#f3efe6', fg: '#2b2723', name: '预览', en: 'Preview' }
-)
+const posterStyle = { bg: '#f3efe6', fg: '#2b2723', name: '学习版式', en: 'Learned Layout' }
 
 const buildStep = computed(() => {
-  if (step.value !== 3) return 3
+  if (step.value !== 2) return 3
   return state.generating ? state.genStep : 3
 })
 
@@ -88,7 +86,7 @@ function onDrop(e: DragEvent) {
       @update:document="updateEditorDocument"
     />
 
-    <!-- 步骤 1 / 2 / 3：海报预览 -->
+    <!-- 步骤 1 / 2：文案与海报预览 -->
     <div v-else class="w-full max-w-md">
       <PosterPreview
         :bg="posterStyle.bg"
@@ -101,10 +99,9 @@ function onDrop(e: DragEvent) {
       />
       <p class="mt-5 text-center font-mono text-[10px] uppercase tracking-[0.18em] text-ink-faint">
         <template v-if="step === 1">Fig. 01 — 预览</template>
-        <template v-else-if="step === 2">Fig. 02 — {{ posterStyle.name }} 方向</template>
-        <template v-else-if="state.generated">Fig. 03 — 已完成 · 共 {{ state.candidates.length }} 个方案</template>
-        <template v-else-if="state.generating">Fig. 03 — 生成中</template>
-        <template v-else>Fig. 03 — 准备就绪</template>
+        <template v-else-if="state.generated">Fig. 02 — 已完成 · 共 {{ state.candidates.length }} 个方案</template>
+        <template v-else-if="state.generating">Fig. 02 — 生成中</template>
+        <template v-else>Fig. 02 — 学习版式 · 准备就绪</template>
       </p>
     </div>
   </div>
