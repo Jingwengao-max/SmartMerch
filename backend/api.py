@@ -531,13 +531,21 @@ def frontend(full_path: str):
 
 if __name__ == "__main__":
     import os
+    import socket
     import subprocess
     import threading
     import uvicorn
     import webbrowser
 
+    def find_free_port() -> int:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind(("127.0.0.1", 0))
+            return int(probe.getsockname()[1])
+
+    preview_port = find_free_port()
+    preview_url = f"http://127.0.0.1:{preview_port}/studio"
+
     def open_preview_without_proxy() -> None:
-        preview_url = "http://127.0.0.1:8765/studio"
         edge_candidates = [
             Path(os.environ.get("PROGRAMFILES(X86)", "")) / "Microsoft/Edge/Application/msedge.exe",
             Path(os.environ.get("PROGRAMFILES", "")) / "Microsoft/Edge/Application/msedge.exe",
@@ -557,5 +565,6 @@ if __name__ == "__main__":
             return
         webbrowser.open(preview_url)
 
+    print(f"SmartMerch preview: {preview_url}", flush=True)
     threading.Timer(1.5, open_preview_without_proxy).start()
-    uvicorn.run(app, host="0.0.0.0", port=8765)
+    uvicorn.run(app, host="127.0.0.1", port=preview_port)
