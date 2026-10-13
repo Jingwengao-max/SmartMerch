@@ -10,6 +10,8 @@ AI 商品宣传图生成系统。Vue 3 前端负责上传商品图、确认或�
 powershell -ExecutionPolicy Bypass -File .\start.ps1
 ```
 
+也可以在资源管理器中直接双击 `start-smartmerch.cmd`。聊天中的文件链接只用于定位文件，Windows/Codex 不会从聊天窗口直接执行脚本。
+
 脚本会自动检查依赖、构建网页、启动服务并打开浏览器。整个网站只使用一个地址：`http://127.0.0.1:8000/studio`，不再需要分别保持 5173 和 8000 两个开发服务。
 
 ## 开发模式
