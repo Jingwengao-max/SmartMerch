@@ -12,6 +12,7 @@ const {
   back,
   applyCopywriting,
   generateCopySuggestions,
+  translateName,
   refineCopywriting,
   selectCandidate,
   startGenerate,
@@ -31,7 +32,7 @@ function onPick(e: Event) {
   target.value = ''
 }
 function onChineseBlur() {
-  if (state.feature.trim()) generateCopySuggestions(true)
+  if (state.feature.trim() && !state.name.trim()) translateName()
 }
 async function onRefine(index: number) {
   const instruction = copyFeedback[index]?.trim()
@@ -92,12 +93,25 @@ async function onRefine(index: number) {
             <button
               type="button"
               class="text-xs text-sage disabled:opacity-40"
-              :disabled="state.analyzing || !state.feature.trim()"
-              @click="generateCopySuggestions(true)"
-            >{{ state.analyzing ? '生成中…' : 'AI 翻译并推荐' }}</button>
+              :disabled="state.translating || !state.feature.trim()"
+              @click="translateName"
+            >{{ state.translating ? '翻译中…' : 'AI 翻译' }}</button>
           </div>
           <input v-model="state.name" class="field-input mt-3" placeholder="例如：Strawberry Danish" />
         </label>
+        <div class="flex items-center justify-between gap-3 border-t border-warm-300 pt-4">
+          <div>
+            <p class="font-display text-lg leading-snug">AI 宣传文案推荐</p>
+            <p class="mt-1 text-xs text-ink-faint">视觉模型会结合商品图片生成卖点与口号。</p>
+          </div>
+          <button
+            type="button"
+            class="btn-rect whitespace-nowrap px-3 py-2 text-xs"
+            :disabled="state.analyzing || !state.jobId"
+            @click="generateCopySuggestions(false)"
+          >{{ state.analyzing ? '推荐中…' : 'AI 推荐' }}</button>
+        </div>
+        <p v-if="state.aiWarning" class="text-xs leading-relaxed text-red-700">{{ state.aiWarning }}</p>
         <div v-if="state.copywriting.length" class="space-y-3">
           <p class="text-sm text-ink-soft">AI 文案建议（选择后仍可修改）</p>
           <div

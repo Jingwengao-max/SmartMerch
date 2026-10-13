@@ -5,6 +5,7 @@ import {
   generateCopy,
   generatePosters,
   refineCopy,
+  translateProductName,
   type CopywritingOption,
   type PosterCandidate,
   type PosterDocument,
@@ -27,6 +28,7 @@ const state = reactive({
   removing: false,
   bgRemoved: false,
   analyzing: false,
+  translating: false,
   refiningIndex: -1,
   name: '',
   feature: '',
@@ -78,7 +80,6 @@ async function setFile(file: File) {
       state.cutoutUrl = assetUrl(result.cutoutUrl)
       state.image = state.cutoutUrl
       state.bgRemoved = true
-      await generateCopySuggestions()
     })
     .catch((error: Error) => {
       state.error = error.message
@@ -93,8 +94,8 @@ function next() { if (canNext.value && step.value < 2) step.value++ }
 function back() { if (step.value > 0 && !state.generating) step.value-- }
 function goTo(index: number) { if (index >= 0 && index <= step.value && !state.generating) step.value = index }
 function applyCopywriting(option: CopywritingOption) {
-  state.name = option.title
-  state.feature = option.subtitle
+  if (!state.name.trim()) state.name = option.title
+  if (!state.feature.trim()) state.feature = option.subtitle
   if (option.sellingPoints?.length) {
     state.sellingPoints = [...option.sellingPoints.slice(0, 3), '', ''].slice(0, 3)
   }
@@ -125,9 +126,23 @@ async function generateCopySuggestions(applyEnglish = false) {
       if (!state.feature.trim()) state.feature = first.subtitle
     }
   } catch (error) {
-    state.error = error instanceof Error ? error.message : '文案生成失败。'
+    state.aiWarning = error instanceof Error ? error.message : '文案生成失败。'
   } finally {
     state.analyzing = false
+  }
+}
+
+async function translateName() {
+  const chineseName = state.feature.trim()
+  if (!chineseName || state.translating) return
+  state.translating = true
+  state.aiWarning = ''
+  try {
+    state.name = await translateProductName(chineseName)
+  } catch (error) {
+    state.aiWarning = error instanceof Error ? error.message : 'AI 翻译失败，请稍后重试。'
+  } finally {
+    state.translating = false
   }
 }
 
@@ -194,7 +209,7 @@ function reset() {
   if (state.image?.startsWith('blob:')) URL.revokeObjectURL(state.image)
   Object.assign(state, {
     sourceFile: null, image: null, imageName: '', cutoutUrl: '', jobId: '', removing: false,
-    bgRemoved: false, analyzing: false, refiningIndex: -1, name: '', feature: '',
+    bgRemoved: false, analyzing: false, translating: false, refiningIndex: -1, name: '', feature: '',
     sellingPoints: ['', '', ''], footer: '', launchText: '新品上市', badgeText: 'NEW!',
     copywriting: [], aiWarning: '', generating: false, genStep: -1, generated: false,
     candidates: [], editorDocument: null, selectedCandidateIndex: 0, error: '',
@@ -205,7 +220,7 @@ function reset() {
 export function useStudio() {
   return {
     steps, genSteps, state, step, selectedCandidate, canNext,
-    setFile, next, back, goTo, applyCopywriting, generateCopySuggestions,
+    setFile, next, back, goTo, applyCopywriting, generateCopySuggestions, translateName,
     refineCopywriting, selectCandidate,
     updateEditorDocument, startGenerate, reset,
   }

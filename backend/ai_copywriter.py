@@ -31,6 +31,10 @@ REFINE_PROMPT = """你是一名谨慎的商品海报文案编辑。根据商品�
 {"copywriting":[{"title":"英文商品名","subtitle":"中文商品名","sellingPoints":["卖点"],
 "footer":"品牌口号","launchText":"新品上市","badgeText":"NEW!"}],"warning":"需要人工确认的内容"}"""
 
+TRANSLATE_PROMPT = """你是商品名称翻译助手。将用户输入的中文商品名翻译为自然、简洁、适合商品海报标题的英文。
+不要增加原文没有的品牌、口味、材质、功效或规格。只返回JSON，不要Markdown。格式：
+{"translation":"英文商品名"}"""
+
 
 def configured() -> bool:
     return bool(os.getenv("AI_API_URL", "").strip() and os.getenv("AI_API_KEY", "").strip())
@@ -124,6 +128,44 @@ def _call_ai(path: Path, system_prompt: str, user_text: str) -> dict[str, Any]:
     if isinstance(text, list):
         text = "".join(str(item.get("text", "")) for item in text if isinstance(item, dict))
     return _validate(_extract_json(text))
+
+
+def translate_with_ai(chinese_name: str) -> str:
+    """仅调用普通文本模型翻译商品名，不发送商品图片。"""
+    import requests
+
+    source = chinese_name.strip()
+    if not source:
+        raise ValueError("请输入中文商品名。")
+    endpoint = os.environ["AI_API_URL"].strip().rstrip("/")
+    if endpoint.endswith("/v1"):
+        endpoint += "/chat/completions"
+    model = os.getenv("AI_TEXT_MODEL", "qwen-plus").strip()
+    payload = {
+        "model": model,
+        "temperature": 0.2,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": TRANSLATE_PROMPT},
+            {"role": "user", "content": source},
+        ],
+    }
+    headers = {
+        "Authorization": f"Bearer {os.environ['AI_API_KEY'].strip()}",
+        "Content-Type": "application/json",
+    }
+    response = requests.post(endpoint, headers=headers, json=payload, timeout=45)
+    if response.status_code == 400:
+        payload.pop("response_format", None)
+        response = requests.post(endpoint, headers=headers, json=payload, timeout=45)
+    if not response.ok:
+        raise RuntimeError(f"文本模型接口返回 HTTP {response.status_code}：{response.text.strip()[:500]}")
+    content = response.json()["choices"][0]["message"]["content"]
+    result = _extract_json(content)
+    translation = str(result.get("translation", "")).strip()[:60]
+    if not translation:
+        raise ValueError("文本模型没有返回英文译名。")
+    return translation
 
 
 def analyze_with_ai(path: Path, known: dict[str, Any] | None = None) -> dict[str, Any]:

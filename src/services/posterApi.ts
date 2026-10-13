@@ -114,6 +114,17 @@ export async function generateCopy(input: {
   )
 }
 
+export async function translateProductName(text: string): Promise<string> {
+  const result = await parseResponse<{ translation: string }>(
+    await fetch(`${API_BASE}/api/translate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    }),
+  )
+  return result.translation
+}
+
 export async function refineCopy(input: {
   jobId: string
   current: CopywritingOption

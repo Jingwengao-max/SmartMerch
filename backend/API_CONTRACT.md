@@ -28,7 +28,21 @@
 }
 ```
 
-## 2. 视觉识别与文案
+## 2. AI 翻译与视觉文案
+
+`POST /api/translate` 使用普通文本模型翻译商品名，不发送商品图片。请求为 JSON：
+
+```json
+{ "text": "草莓奶油丹麦" }
+```
+
+返回：
+
+```json
+{ "source": "草莓奶油丹麦", "translation": "Strawberry Cream Danish", "model": "qwen-plus" }
+```
+
+文本模型通过 `AI_TEXT_MODEL` 配置，与下方视觉模型 `AI_MODEL` 相互独立。
 
 `POST /api/analyze-copy`，请求类型为 `multipart/form-data`，字段为 `image`。
 
@@ -45,7 +59,7 @@
 | --- | --- | --- |
 | `jobId` | string | `/api/cutout` 返回的任务编号 |
 | `name` | string | 已填写的英文商品名，可为空 |
-| `feature` | string | 已填写的中文商品名；填写后模型会生成对应英文名 |
+| `feature` | string | 已填写的中文商品名，作为视觉文案生成的已知信息 |
 | `selling_points` | JSON string | 用户已填写的卖点，最多 3 条 |
 | `footer` | string | 品牌口号 |
 | `launch_text` | string | 右上标签 |
