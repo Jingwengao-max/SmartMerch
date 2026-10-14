@@ -43,7 +43,9 @@ py -m uvicorn api:app --host 127.0.0.1 --port 8000 --reload
 $env:AI_API_URL="https://你的服务地址/v1/chat/completions"
 $env:AI_API_KEY="你的密钥"
 $env:AI_MODEL="你的视觉模型名称"
-$env:AI_TEXT_MODEL="你的普通文本模型名称"
+$env:AI_TEXT_API_URL="https://api.deepseek.com/v1"
+$env:AI_TEXT_API_KEY="你的DeepSeek API Key"
+$env:AI_TEXT_MODEL="deepseek-chat"
 py -m uvicorn api:app --host 127.0.0.1 --port 8000
 ```
 

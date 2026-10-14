@@ -40,6 +40,13 @@ def configured() -> bool:
     return bool(os.getenv("AI_API_URL", "").strip() and os.getenv("AI_API_KEY", "").strip())
 
 
+def text_configured() -> bool:
+    return bool(
+        os.getenv("AI_TEXT_API_URL", os.getenv("AI_API_URL", "")).strip()
+        and os.getenv("AI_TEXT_API_KEY", os.getenv("AI_API_KEY", "")).strip()
+    )
+
+
 def _data_url(path: Path) -> str:
     mime = mimetypes.guess_type(path.name)[0] or "image/jpeg"
     return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
@@ -94,7 +101,7 @@ def _validate(payload: dict[str, Any]) -> dict[str, Any]:
 def _call_ai(path: Path, system_prompt: str, user_text: str) -> dict[str, Any]:
     import requests
 
-    endpoint = os.environ["AI_API_URL"].strip().rstrip("/")
+    endpoint = os.getenv("AI_TEXT_API_URL", os.getenv("AI_API_URL", "")).strip().rstrip("/")
     # 允许用户填写 OpenAI 兼容服务的根地址，例如 https://host/v1。
     if endpoint.endswith("/v1"):
         endpoint += "/chat/completions"
@@ -140,7 +147,7 @@ def translate_with_ai(chinese_name: str) -> str:
     endpoint = os.environ["AI_API_URL"].strip().rstrip("/")
     if endpoint.endswith("/v1"):
         endpoint += "/chat/completions"
-    model = os.getenv("AI_TEXT_MODEL", "qwen-plus").strip()
+    model = os.getenv("AI_TEXT_MODEL", "deepseek-chat").strip()
     payload = {
         "model": model,
         "temperature": 0.2,
@@ -151,7 +158,7 @@ def translate_with_ai(chinese_name: str) -> str:
         ],
     }
     headers = {
-        "Authorization": f"Bearer {os.environ['AI_API_KEY'].strip()}",
+        "Authorization": f"Bearer {os.getenv('AI_TEXT_API_KEY', os.getenv('AI_API_KEY', '')).strip()}",
         "Content-Type": "application/json",
     }
     response = requests.post(endpoint, headers=headers, json=payload, timeout=45)

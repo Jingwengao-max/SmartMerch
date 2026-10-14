@@ -42,7 +42,7 @@
 { "source": "草莓奶油丹麦", "translation": "Strawberry Cream Danish", "model": "qwen-plus" }
 ```
 
-文本模型通过 `AI_TEXT_MODEL` 配置，与下方视觉模型 `AI_MODEL` 相互独立。
+文本翻译默认使用 `deepseek-chat`，通过 `AI_TEXT_API_URL、AI_TEXT_API_KEY、AI_TEXT_MODEL` 独立配置；视觉模型继续使用 `AI_API_URL、AI_API_KEY、AI_MODEL`。
 
 `POST /api/analyze-copy`，请求类型为 `multipart/form-data`，字段为 `image`。
 
