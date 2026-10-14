@@ -94,7 +94,6 @@ function next() { if (canNext.value && step.value < 2) step.value++ }
 function back() { if (step.value > 0 && !state.generating) step.value-- }
 function goTo(index: number) { if (index >= 0 && index <= step.value && !state.generating) step.value = index }
 function applyCopywriting(option: CopywritingOption) {
-  if (!state.name.trim()) state.name = option.title
   if (!state.feature.trim()) state.feature = option.subtitle
   if (option.sellingPoints?.length) {
     state.sellingPoints = [...option.sellingPoints.slice(0, 3), '', ''].slice(0, 3)
@@ -104,7 +103,7 @@ function applyCopywriting(option: CopywritingOption) {
   state.badgeText = option.badgeText || state.badgeText
 }
 
-async function generateCopySuggestions(applyEnglish = false) {
+async function generateCopySuggestions() {
   if (!state.jobId || state.analyzing) return
   state.analyzing = true
   state.error = ''
@@ -122,7 +121,6 @@ async function generateCopySuggestions(applyEnglish = false) {
     state.aiWarning = result.warning
     const first = result.copywriting[0]
     if (first) {
-      if (applyEnglish || !state.name.trim()) state.name = first.title
       if (!state.feature.trim()) state.feature = first.subtitle
     }
   } catch (error) {
@@ -140,7 +138,7 @@ async function translateName() {
   try {
     state.name = await translateProductName(chineseName)
   } catch (error) {
-    state.aiWarning = error instanceof Error ? error.message : 'AI 翻译失败，请稍后重试。'
+    state.aiWarning = error instanceof Error ? error.message : '英文名生成失败，请稍后重试。'
   } finally {
     state.translating = false
   }

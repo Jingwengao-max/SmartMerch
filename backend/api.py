@@ -20,7 +20,6 @@ from ai_copywriter import (
     configured as ai_configured,
     local_suggestions,
     refine_with_ai,
-    text_configured,
     translate_with_ai,
 )
 from layout_engine import CANVAS, extract_product_features, load_font
@@ -223,8 +222,6 @@ def health():
         "status": "ok",
         "copywriterAi": ai_configured(),
         "aiModel": os.getenv("AI_MODEL", "qwen3-vl-plus"),
-        "translatorAi": text_configured(),
-        "textModel": os.getenv("AI_TEXT_MODEL", "deepseek-chat"),
         "posterDesign": poster_design_available(),
         "layoutModel": layout_model["modelType"],
         "layoutModelVersion": layout_model["modelVersion"],
@@ -375,17 +372,17 @@ async def generate_copy(
 
 @app.post("/api/translate")
 def translate_product_name(payload: dict[str, Any]):
-    """使用普通文本模型翻译商品名，不读取或上传商品图片。"""
+    """使用统一 AI 模型翻译商品名，不读取或上传商品图片。"""
     chinese_name = str(payload.get("text", "")).strip()
     if not chinese_name:
         raise HTTPException(400, "请输入中文商品名。")
-    if not text_configured():
-        raise HTTPException(503, "尚未配置文本模型接口。")
+    if not ai_configured():
+        raise HTTPException(503, "尚未配置 AI 模型接口。")
     try:
         return {
             "source": chinese_name,
             "translation": translate_with_ai(chinese_name),
-            "model": os.getenv("AI_TEXT_MODEL", "deepseek-chat"),
+            "model": os.getenv("AI_MODEL", "qwen3-vl-plus"),
         }
     except Exception as error:
         raise HTTPException(502, f"AI翻译失败：{error}") from error

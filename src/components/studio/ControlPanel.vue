@@ -95,7 +95,7 @@ async function onRefine(index: number) {
               class="text-xs text-sage disabled:opacity-40"
               :disabled="state.translating || !state.feature.trim()"
               @click="translateName"
-            >{{ state.translating ? '翻译中…' : 'AI 翻译' }}</button>
+            >{{ state.translating ? '生成中…' : '生成英文名' }}</button>
           </div>
           <input v-model="state.name" class="field-input mt-3" placeholder="例如：Strawberry Danish" />
         </label>
@@ -108,7 +108,7 @@ async function onRefine(index: number) {
             type="button"
             class="btn-rect whitespace-nowrap px-3 py-2 text-xs"
             :disabled="state.analyzing || !state.jobId"
-            @click="generateCopySuggestions(false)"
+            @click="generateCopySuggestions()"
           >{{ state.analyzing ? '推荐中…' : 'AI 推荐' }}</button>
         </div>
         <p v-if="state.aiWarning" class="text-xs leading-relaxed text-red-700">{{ state.aiWarning }}</p>
@@ -116,12 +116,11 @@ async function onRefine(index: number) {
           <p class="text-sm text-ink-soft">AI 文案建议（选择后仍可修改）</p>
           <div
             v-for="(item, index) in state.copywriting"
-            :key="`${index}-${item.title}-${item.subtitle}`"
+            :key="`${index}-${item.subtitle}`"
             class="border border-warm-300 p-3"
           >
             <button type="button" class="w-full text-left" @click="applyCopywriting(item)">
-              <strong class="block text-sm">{{ item.title }}</strong>
-              <span class="mt-1 block text-xs text-ink-soft">{{ item.subtitle }}</span>
+              <strong class="block text-sm">{{ item.subtitle }}</strong>
               <span v-if="item.sellingPoints?.length" class="mt-2 block text-[11px] leading-relaxed text-ink-faint">
                 {{ item.sellingPoints.join(' · ') }}
               </span>
@@ -130,7 +129,7 @@ async function onRefine(index: number) {
               <input
                 v-model="copyFeedback[index]"
                 class="field-input min-w-0 flex-1 text-xs"
-                placeholder="例如：英文名短一些"
+                placeholder="例如：卖点更突出口感"
                 @keyup.enter="onRefine(index)"
               />
               <button

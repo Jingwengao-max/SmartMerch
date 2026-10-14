@@ -8,10 +8,12 @@ __pycache__/
 *.local
 npm-debug.log*
 .npm-cache/
+.test-tmp/
 .env
 
 # Python backend
 backend/.venv/
+.venv/
 backend/.pytest_cache/
 backend/.uv-cache/
 backend/generated/

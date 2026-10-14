@@ -8,7 +8,7 @@
 
 1. 上传 JPG、PNG 或 WEBP 商品照片。
 2. 使用 `rembg` 自动抠出商品主体；透明 PNG 可直接使用。
-3. 人工填写中文商品名，使用普通文本模型翻译英文商品名。
+3. 人工填写中文商品名，使用统一的 AI 模型生成英文商品名。
 4. 使用视觉模型分析商品图片，推荐卖点、品牌口号和标签文案。
 5. 用户选择 AI 建议后仍可人工修改，也可以输入意见让模型局部重写。
 6. 根据 4 张参考海报学习出的版式先验生成 1080×1440 海报。
@@ -16,7 +16,7 @@
 8. 在分图层编辑器中调整文字、位置、尺寸和颜色。
 9. 导出 PNG，文件名为 `智绘商品-商品名称.png`。
 
-AI 能力是可选的。没有配置 API 时，抠图、手工填写、海报生成、分层编辑和 PNG 导出仍可使用；AI 翻译、AI 推荐和按意见改写不可用。
+AI 能力是可选的。没有配置 API 时，抠图、手工填写、海报生成、分层编辑和 PNG 导出仍可使用；英文名生成、AI 推荐和按意见改写不可用。
 
 ## 二、输入与输出
 
@@ -49,8 +49,8 @@ AI 能力是可选的。没有配置 API 时，抠图、手工填写、海报生
 
 ### AI 模块
 
-- 文本翻译：普通文本模型，默认 `deepseek-chat`；只接收中文商品名，不上传图片。
-- 视觉推荐：支持图片输入的视觉模型；根据商品图生成卖点和宣传文案。
+- 英文名生成：复用视觉推荐所配置的 AI 模型；只接收中文商品名，不上传图片。
+- 视觉推荐：同一 AI 模型根据商品图生成卖点和宣传文案。
 - 版式生成：根据 4 张参考海报的区域标注训练可解释的小样本统计模型，不是扩散模型微调。
 - 自动抠图：rembg。
 
@@ -115,38 +115,36 @@ Uvicorn running on http://127.0.0.1:54321
 
 如果浏览器没有自动打开，复制 `SmartMerch preview:` 后面的完整地址。使用期间不要关闭后端终端。首次处理普通照片时，rembg 可能需要联网下载抠图模型。
 
+首次启动器会自动完成以下工作：
+
+1. 检查 Node.js 20+ 和 Python 3.11/3.12；
+2. 在项目根目录创建独立的 `.venv`，避免依赖某台电脑上的固定 Python 路径；
+3. 安装后端依赖并构建前端；
+4. 询问是否配置可选 AI 服务，并把配置保存到不会上传的本地 `.env`；
+5. 启动后端并自动打开工作室。
+
+完成首次安装后，日常启动可直接双击 `open-smartmerch.cmd`，它会复用已有虚拟环境和前端构建结果。
+
+如果 Python 安装在自定义目录，可在启动前设置：
+
+```powershell
+$env:SMARTMERCH_PYTHON = "D:\Python312\python.exe"
+.\start-smartmerch.cmd
+```
+
 ## 七、配置 AI 后完整运行
 
-API Key 不得写入源码或上传到 GitHub。项目根目录的 `.gitignore` 已忽略 `.env`，当前程序主要从启动终端的环境变量中读取配置。
+API Key 不得写入源码或上传到 GitHub。项目根目录的 `.gitignore` 已忽略 `.env`。首次启动向导可生成该文件，启动器会把其中的配置只加载到当前后端进程；也可以继续使用启动终端中的环境变量。
 
-### 方案 A：视觉模型和文本模型来自不同平台
-
-以下示例使用千问AI平台的视觉模型和 DeepSeek 官方文本模型。请将示例 Key 替换为各平台创建的完整 Key，不要使用页面显示的脱敏字符串。
+只需配置一个支持图片输入和 Chat Completions 的 OpenAI 兼容模型。英文名生成与视觉文案推荐共用同一组接口、Key 和模型；英文名生成请求只发送中文商品名，不发送图片。
 
 ```powershell
 cd "C:\你的路径\SmartMerch"
 
-# 视觉模型：必须支持图片输入
+# 统一 AI 模型：必须支持图片输入
 $env:AI_API_URL = "https://maas.qianwenaiapi.com/compatible-mode/v1"
-$env:AI_API_KEY = Read-Host "粘贴视觉模型平台的完整 API Key"
-$env:AI_MODEL = "qwen3.8-max"
-
-# 普通文本模型：只负责中文商品名翻译
-$env:AI_TEXT_API_URL = "https://api.deepseek.com/v1"
-$env:AI_TEXT_API_KEY = Read-Host "粘贴 DeepSeek 官方完整 API Key"
-$env:AI_TEXT_MODEL = "deepseek-chat"
-```
-
-### 方案 B：同一平台同时提供两个模型
-
-```powershell
-$env:AI_API_URL = "平台的 OpenAI 兼容 Base URL"
-$env:AI_API_KEY = Read-Host "粘贴平台完整 API Key"
-$env:AI_MODEL = "支持图片输入的视觉模型名称"
-
-$env:AI_TEXT_API_URL = $env:AI_API_URL
-$env:AI_TEXT_API_KEY = $env:AI_API_KEY
-$env:AI_TEXT_MODEL = "deepseek-chat"
+$env:AI_API_KEY = Read-Host "粘贴 AI 平台的完整 API Key"
+$env:AI_MODEL = "qwen3-vl-plus"
 ```
 
 确认配置已经进入当前 PowerShell：
@@ -155,12 +153,9 @@ $env:AI_TEXT_MODEL = "deepseek-chat"
 Write-Host "视觉接口：" $env:AI_API_URL
 Write-Host "视觉模型：" $env:AI_MODEL
 Write-Host "视觉 Key 长度：" $env:AI_API_KEY.Length
-Write-Host "文本接口：" $env:AI_TEXT_API_URL
-Write-Host "文本模型：" $env:AI_TEXT_MODEL
-Write-Host "文本 Key 长度：" $env:AI_TEXT_API_KEY.Length
 ```
 
-两个 Key 长度都应大于 10。配置和启动必须在同一个 PowerShell 窗口中完成。
+Key 长度应大于 10。配置和启动必须在同一个 PowerShell 窗口中完成。
 
 构建并启动：
 
@@ -178,9 +173,7 @@ py api.py
 {
   "status": "ok",
   "copywriterAi": true,
-  "translatorAi": true,
-  "aiModel": "视觉模型名称",
-  "textModel": "deepseek-chat"
+  "aiModel": "视觉模型名称"
 }
 ```
 
@@ -213,7 +206,7 @@ VITE_API_BASE_URL=http://你的后端地址:端口
 | --- | --- | --- |
 | GET | `/api/health` | 检查后端、模型与版式状态 |
 | POST | `/api/cutout` | 上传商品图并自动抠图 |
-| POST | `/api/translate` | 使用普通文本模型翻译商品名 |
+| POST | `/api/translate` | 使用统一 AI 模型生成英文商品名 |
 | POST | `/api/copy` | 使用视觉模型生成宣传文案建议 |
 | POST | `/api/copy/refine` | 根据用户意见修改一组文案 |
 | POST | `/api/generate` | 生成海报和分层文档 |
@@ -252,10 +245,6 @@ py -m unittest discover -s backend -p "test*.py" -v
 
 ## 十二、常见问题
 
-### `尚未配置文本模型接口`
-
-当前后端进程没有读到 `AI_TEXT_API_URL` 或 `AI_TEXT_API_KEY`。必须先在 PowerShell 配置，再从同一个窗口启动后端。
-
 ### `尚未配置视觉AI`
 
 当前后端进程没有读到 `AI_API_URL` 或 `AI_API_KEY`。没有视觉模型时可以人工填写卖点继续生成。
@@ -276,10 +265,10 @@ py -m unittest discover -s backend -p "test*.py" -v
 py -m pip install --upgrade "rembg[cpu]" pillow
 ```
 
-### AI 翻译和 AI 推荐的区别
+### 英文名生成和 AI 推荐的区别
 
-- AI 翻译只发送中文商品名，不发送商品图片。
-- AI 推荐会发送商品图片给配置的视觉模型。
+- 英文名生成只发送中文商品名，不发送商品图片。
+- AI 推荐会发送商品图片给同一个 AI 模型。
 - 两项结果都只是建议，用户可以继续修改。
 
 ## 十三、安全与上传说明

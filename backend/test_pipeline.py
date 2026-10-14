@@ -1,6 +1,8 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from PIL import Image
 
@@ -12,6 +14,27 @@ from quality_evaluator import evaluate_document
 
 
 class PosterPipelineTests(unittest.TestCase):
+    def test_translation_reuses_unified_ai_configuration(self):
+        from ai_copywriter import translate_with_ai
+
+        response = Mock()
+        response.status_code = 200
+        response.ok = True
+        response.json.return_value = {
+            "choices": [{"message": {"content": '{"translation":"Strawberry Danish"}'}}],
+        }
+        with patch.dict(os.environ, {
+            "AI_API_URL": "https://example.test/v1",
+            "AI_API_KEY": "unified-secret",
+            "AI_MODEL": "vision-model",
+        }, clear=True), patch("requests.post", return_value=response) as post:
+            translated = translate_with_ai("草莓丹麦")
+
+        self.assertEqual(translated, "Strawberry Danish")
+        self.assertEqual(post.call_args.args[0], "https://example.test/v1/chat/completions")
+        self.assertEqual(post.call_args.kwargs["json"]["model"], "vision-model")
+        self.assertEqual(post.call_args.kwargs["headers"]["Authorization"], "Bearer unified-secret")
+
     def test_visual_copy_contract_matches_current_poster(self):
         from ai_copywriter import _validate
 
@@ -27,7 +50,7 @@ class PosterPipelineTests(unittest.TestCase):
             }],
         })
         option = result["copywriting"][0]
-        self.assertEqual(option["title"], "Strawberry Danish")
+        self.assertNotIn("title", option)
         self.assertEqual(option["subtitle"], "草莓奶油丹麦")
         self.assertEqual(len(option["sellingPoints"]), 3)
         self.assertEqual(option["launchText"], "新品上市")

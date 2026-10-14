@@ -28,9 +28,9 @@
 }
 ```
 
-## 2. AI 翻译与视觉文案
+## 2. AI 英文名与视觉文案
 
-`POST /api/translate` 使用普通文本模型翻译商品名，不发送商品图片。请求为 JSON：
+`POST /api/translate` 使用统一配置的 AI 模型生成英文商品名，不发送商品图片。请求为 JSON：
 
 ```json
 { "text": "草莓奶油丹麦" }
@@ -39,10 +39,10 @@
 返回：
 
 ```json
-{ "source": "草莓奶油丹麦", "translation": "Strawberry Cream Danish", "model": "qwen-plus" }
+{ "source": "草莓奶油丹麦", "translation": "Strawberry Cream Danish", "model": "qwen3-vl-plus" }
 ```
 
-文本翻译默认使用 `deepseek-chat`，通过 `AI_TEXT_API_URL、AI_TEXT_API_KEY、AI_TEXT_MODEL` 独立配置；视觉模型继续使用 `AI_API_URL、AI_API_KEY、AI_MODEL`。
+英文名生成和视觉文案统一使用 `AI_API_URL、AI_API_KEY、AI_MODEL`。英文名请求只有文本，不包含商品图片。
 
 `POST /api/analyze-copy`，请求类型为 `multipart/form-data`，字段为 `image`。
 
@@ -65,15 +65,15 @@
 | `launch_text` | string | 右上标签 |
 | `badge_text` | string | 徽章文字 |
 
-返回 `copywriting` 中的每个方案都包含 `title、subtitle、sellingPoints、footer、launchText、badgeText`。所有内容只是建议，用户选择后仍可修改。
+返回 `copywriting` 中的每个方案都包含 `subtitle、sellingPoints、footer、launchText、badgeText`，不包含英文商品名。英文名由 `/api/translate` 独立生成，选择文案建议时不会被覆盖。所有内容只是建议，用户选择后仍可修改。
 
 `POST /api/copy/refine` 接收 JSON：
 
 ```json
 {
   "jobId": "任务编号",
-  "current": { "title": "英文名", "subtitle": "中文名" },
-  "instruction": "英文名再短一些，第二条卖点突出便携"
+  "current": { "subtitle": "中文名", "sellingPoints": ["卖点"] },
+  "instruction": "第二条卖点更突出便携，底部口号更简洁"
 }
 ```
 

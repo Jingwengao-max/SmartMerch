@@ -35,7 +35,7 @@ py -m uvicorn api:app --host 127.0.0.1 --port 8000 --reload
 
 ## AI商品识别与文案
 
-页面既支持手动填写，也将 AI 能力拆为两条独立链路：“AI 翻译”使用普通文本模型，仅接收中文商品名并返回英文标题，不上传图片；“AI 推荐”使用视觉模型分析商品图，生成卖点、底部口号等候选文案。所有结果仍可人工修改，每组候选支持按意见重写。未配置接口时使用安全的本地通用建议，不会假装识别商品。
+页面既支持手动填写，也通过同一个 AI 模型提供两项能力：“生成英文名”仅接收中文商品名并返回英文标题，不上传图片；“AI 推荐”分析商品图，生成卖点、底部口号等候选文案。所有结果仍可人工修改，每组候选支持按意见重写。未配置接口时使用安全的本地通用建议，不会假装识别商品。
 
 配置支持图片输入的OpenAI兼容接口：
 
@@ -43,9 +43,6 @@ py -m uvicorn api:app --host 127.0.0.1 --port 8000 --reload
 $env:AI_API_URL="https://你的服务地址/v1/chat/completions"
 $env:AI_API_KEY="你的密钥"
 $env:AI_MODEL="你的视觉模型名称"
-$env:AI_TEXT_API_URL="https://api.deepseek.com/v1"
-$env:AI_TEXT_API_KEY="你的DeepSeek API Key"
-$env:AI_TEXT_MODEL="deepseek-chat"
 py -m uvicorn api:app --host 127.0.0.1 --port 8000
 ```
 
