@@ -7,6 +7,9 @@ const {
   state,
   step,
   steps,
+  styles,
+  selectedStyle,
+  selectStyle,
   genSteps,
   canNext,
   next,
@@ -70,8 +73,40 @@ function onChineseBlur() {
         <p v-if="state.error" class="text-sm text-red-700">{{ state.error }}</p>
       </div>
 
-      <!-- 1 信息 -->
-      <div v-else-if="step === 1" class="space-y-6">
+      <!-- 1 风格 -->
+      <div v-else-if="step === 1" class="space-y-5">
+        <p class="text-sm leading-relaxed text-ink-soft">
+          选择海报的视觉风格。其余风格还在导入中，目前只能使用「杂志编辑」。
+        </p>
+        <button
+          v-for="item in styles"
+          :key="item.key"
+          type="button"
+          class="flex w-full items-start gap-4 border px-4 py-3.5 text-left transition-colors"
+          :class="[
+            state.style === item.key ? 'border-ink' : 'border-warm-300',
+            item.available ? 'hover:border-ink/50' : 'cursor-not-allowed opacity-40',
+          ]"
+          :disabled="!item.available"
+          @click="selectStyle(item.key)"
+        >
+          <span class="mt-0.5 flex gap-1.5">
+            <span class="h-5 w-5 rounded-full border border-black/10" :style="{ background: item.bg }"></span>
+            <span class="h-5 w-5 rounded-full border border-black/10" :style="{ background: item.fg }"></span>
+          </span>
+          <span class="flex-1">
+            <span class="block font-display text-lg leading-tight">{{ item.name }}</span>
+            <span class="mt-0.5 block text-sm text-ink-soft">{{ item.desc }}</span>
+          </span>
+          <span class="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-faint">
+            {{ item.available ? item.en : '即将导入' }}
+          </span>
+        </button>
+        <p v-if="selectedStyle" class="text-xs text-ink-faint">当前选择：{{ selectedStyle.name }}</p>
+      </div>
+
+      <!-- 2 信息与文案 -->
+      <div v-else-if="step === 2" class="space-y-6">
         <label class="block">
           <p class="font-display text-lg leading-snug">中文商品名</p>
           <input
@@ -201,7 +236,7 @@ function onChineseBlur() {
 
     <!-- 底部操作 -->
     <div class="shrink-0 border-t border-warm-300 px-7 py-5">
-      <div v-if="step < 2" class="flex items-center gap-3">
+      <div v-if="step < 3" class="flex items-center gap-3">
         <button v-if="step > 0" type="button" class="btn-rect" @click="back">上一步</button>
         <button type="button" class="btn-cta flex-1" :disabled="!canNext" :class="{ 'opacity-40': !canNext }" @click="next">
           下一步

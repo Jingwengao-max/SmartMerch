@@ -158,6 +158,7 @@ export async function generatePosters(input: {
   footer: string
   launchText: string
   badgeText: string
+  style: string
 }): Promise<GenerateResult> {
   const body = new FormData()
   body.append('image', input.image)
@@ -167,6 +168,7 @@ export async function generatePosters(input: {
   body.append('footer', input.footer)
   body.append('launch_text', input.launchText)
   body.append('badge_text', input.badgeText)
+  body.append('style', input.style)
   return parseResponse<GenerateResult>(
     await fetch(`${API_BASE}/api/generate`, { method: 'POST', body })
   )

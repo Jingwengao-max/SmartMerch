@@ -477,6 +477,7 @@ async def generate(
     launch_text: str = Form("新品上市"),
     badge_text: str = Form("NEW!"),
     price: str = Form(""),
+    style: str = Form("editorial"),
 ):
     suffix = Path(image.filename or "product.png").suffix.lower()
     if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
@@ -534,6 +535,7 @@ async def generate(
                 "footer": footer,
                 "launchText": launch_text,
                 "badgeText": badge_text,
+                "style": style,
                 "price": price,
             },
             "productFeatures": features,

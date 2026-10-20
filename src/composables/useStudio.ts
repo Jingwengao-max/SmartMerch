@@ -14,8 +14,33 @@ import {
 
 export const steps = [
   { no: '01', key: 'upload', title: '上传商品', en: 'Upload' },
-  { no: '02', key: 'copy', title: '确认文案', en: 'Copy' },
-  { no: '03', key: 'generate', title: '生成作品', en: 'Generate' },
+  { no: '02', key: 'style', title: '设计风格', en: 'Style' },
+  { no: '03', key: 'copy', title: '确认文案', en: 'Copy' },
+  { no: '04', key: 'generate', title: '生成作品', en: 'Generate' },
+]
+
+export interface Style {
+  key: string
+  name: string
+  en: string
+  desc: string
+  /** 目前只有学习版式可用，其余风格尚未导入。 */
+  available: boolean
+  bg: string
+  fg: string
+}
+
+export const styles: Style[] = [
+  {
+    key: 'editorial', name: '杂志编辑', en: 'Editorial',
+    desc: '暖纸底色、超大标题、手作感装饰（当前学习版式）',
+    available: true, bg: '#faf5ed', fg: '#2b2723',
+  },
+  { key: 'natural', name: '自然', en: 'Natural', desc: '清新、有机、贴近自然', available: false, bg: '#7b8a72', fg: '#f6f3ec' },
+  { key: 'minimal', name: '极简', en: 'Minimal', desc: '留白、克制、干净', available: false, bg: '#efe9de', fg: '#2b2723' },
+  { key: 'retro', name: '复古', en: 'Retro', desc: '怀旧、温暖、有年代感', available: false, bg: '#a87e52', fg: '#f6f3ec' },
+  { key: 'festive', name: '节日', en: 'Festive', desc: '喜庆、热闹、有氛围', available: false, bg: '#c08b62', fg: '#fff8ee' },
+  { key: 'tech', name: '科技', en: 'Tech', desc: '简洁、未来、理性', available: false, bg: '#4e5c46', fg: '#f6f3ec' },
 ]
 
 export const genSteps = ['识别商品主体', '寻找视觉方向', '生成场景', '完成排版']
@@ -31,6 +56,7 @@ const state = reactive({
   analyzing: false,
   translating: false,
   refiningIndex: -1,
+  style: null as string | null,
   name: '',
   feature: '',
   sellingPoints: ['', '', ''] as string[],
@@ -49,10 +75,12 @@ const state = reactive({
 })
 
 const step = ref(0)
+const selectedStyle = computed<Style | null>(() => styles.find((item) => item.key === state.style) ?? null)
 const selectedCandidate = computed<PosterCandidate | null>(() => state.candidates[state.selectedCandidateIndex] ?? null)
 const canNext = computed(() => {
   if (step.value === 0) return !!state.sourceFile && state.bgRemoved && !state.removing
-  if (step.value === 1) return state.name.trim().length > 0 && state.feature.trim().length > 0
+  if (step.value === 1) return !!selectedStyle.value
+  if (step.value === 2) return state.name.trim().length > 0 && state.feature.trim().length > 0
   return false
 })
 
@@ -91,9 +119,13 @@ async function setFile(file: File) {
   await cutoutTask
 }
 
-function next() { if (canNext.value && step.value < 2) step.value++ }
+function next() { if (canNext.value && step.value < 3) step.value++ }
 function back() { if (step.value > 0 && !state.generating) step.value-- }
 function goTo(index: number) { if (index >= 0 && index <= step.value && !state.generating) step.value = index }
+function selectStyle(key: string) {
+  const target = styles.find((item) => item.key === key)
+  if (target?.available) state.style = key
+}
 function applyCopywriting(option: CopywritingOption) {
   // 一键应用：整组覆盖，避免上一组的卖点残留。
   if (option.subtitle) state.feature = option.subtitle
@@ -190,6 +222,7 @@ async function startGenerate() {
       footer: state.footer,
       launchText: state.launchText,
       badgeText: state.badgeText,
+      style: state.style ?? 'editorial',
     })
     state.jobId = result.jobId
     state.candidates = result.candidates.map((item) => ({ ...item, previewUrl: assetUrl(item.previewUrl) }))
@@ -212,6 +245,7 @@ function reset() {
   Object.assign(state, {
     sourceFile: null, image: null, imageName: '', cutoutUrl: '', jobId: '', removing: false,
     bgRemoved: false, analyzing: false, translating: false, refiningIndex: -1, name: '', feature: '',
+    style: null,
     sellingPoints: ['', '', ''], footer: '', launchText: '新品上市', badgeText: 'NEW!',
     copywriting: [], aiWarning: '', generating: false, genStep: -1, generated: false,
     candidates: [], editorDocument: null, selectedCandidateIndex: 0, error: '',
@@ -222,6 +256,7 @@ function reset() {
 export function useStudio() {
   return {
     steps, genSteps, state, step, selectedCandidate, canNext,
+    styles, selectedStyle, selectStyle,
     setFile, next, back, goTo, applyCopywriting, generateCopySuggestions, translateName,
     refineCopywriting, selectCandidate,
     updateEditorDocument, startGenerate, reset,
