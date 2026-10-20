@@ -10,6 +10,7 @@ const props = defineProps<{
 const emit = defineEmits<{ apply: []; refine: [feedback: CopyFeedback] }>()
 
 const open = ref(false)
+const hint = ref('')
 const feedback = reactive<CopyFeedback>({
   subtitle: '',
   sellingPoints: [],
@@ -28,17 +29,28 @@ function reset() {
 
 function toggle() {
   open.value = !open.value
+  hint.value = ''
   if (open.value) reset()
 }
 
 function submit() {
-  emit('refine', {
+  const payload: CopyFeedback = {
     subtitle: feedback.subtitle,
     sellingPoints: (props.variant.sellingPoints ?? []).map((_, i) => feedback.sellingPoints[i] ?? ''),
     footer: feedback.footer,
     launchText: feedback.launchText,
     badgeText: feedback.badgeText,
-  })
+  }
+  const hasAny = [
+    payload.subtitle, payload.footer, payload.launchText, payload.badgeText,
+    ...payload.sellingPoints,
+  ].some((item) => item.trim())
+  if (!hasAny) {
+    hint.value = '先在至少一个条目下面填写修改意见'
+    return
+  }
+  hint.value = ''
+  emit('refine', payload)
 }
 
 // 修改成功后这一组会被替换，届时清空意见输入。
@@ -128,6 +140,7 @@ watch(() => props.variant, () => {
     >
       {{ busy ? '正在修改…' : '按这些意见修改这一组' }}
     </button>
+    <p v-if="hint" class="mt-2 text-xs text-red-700">{{ hint }}</p>
   </div>
 </template>
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
 import uuid
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,29 @@ from poster_design_source import (
     load_template as load_poster_design_template,
 )
 from quality_evaluator import evaluate_document
+
+
+def _load_local_env() -> None:
+    """手动运行 api.py 时也读取本地 .env；不覆盖已有的环境变量。"""
+    project_root = Path(__file__).resolve().parent.parent
+    for candidate in (project_root / ".env", Path(__file__).resolve().parent / ".env"):
+        if not candidate.is_file():
+            continue
+        try:
+            lines = candidate.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for raw in lines:
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            if key:
+                os.environ.setdefault(key, value.strip().strip('"').strip("'"))
+
+
+_load_local_env()
 
 ROOT = Path(__file__).resolve().parent
 WEB_DIR = ROOT / "web"

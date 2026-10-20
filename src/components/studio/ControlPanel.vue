@@ -118,6 +118,7 @@ function onChineseBlur() {
             @refine="refineCopywriting(index, $event)"
           />
         </div>
+        <p v-if="state.error" class="text-sm text-red-700">{{ state.error }}</p>
         <div class="space-y-3">
           <div>
             <p class="font-display text-lg leading-snug">商品卖点</p>
