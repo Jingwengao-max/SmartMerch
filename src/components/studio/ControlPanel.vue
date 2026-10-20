@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { ref } from 'vue'
 import { useStudio } from '@/composables/useStudio'
+import CopyVariantCard from './CopyVariantCard.vue'
 
 const {
   state,
@@ -21,7 +22,6 @@ const {
 } = useStudio()
 
 const fileInput = ref<HTMLInputElement | null>(null)
-const copyFeedback = reactive<Record<number, string>>({})
 function openPicker() {
   fileInput.value?.click()
 }
@@ -33,12 +33,6 @@ function onPick(e: Event) {
 }
 function onChineseBlur() {
   if (state.feature.trim() && !state.name.trim()) translateName()
-}
-async function onRefine(index: number) {
-  const instruction = copyFeedback[index]?.trim()
-  if (!instruction) return
-  await refineCopywriting(index, instruction)
-  copyFeedback[index] = ''
 }
 </script>
 
@@ -113,33 +107,16 @@ async function onRefine(index: number) {
         </div>
         <p v-if="state.aiWarning" class="text-xs leading-relaxed text-red-700">{{ state.aiWarning }}</p>
         <div v-if="state.copywriting.length" class="space-y-3">
-          <p class="text-sm text-ink-soft">AI 文案建议（选择后仍可修改）</p>
-          <div
+          <p class="text-sm text-ink-soft">AI 文案建议（可逐条提意见，或一键应用）</p>
+          <CopyVariantCard
             v-for="(item, index) in state.copywriting"
-            :key="`${index}-${item.subtitle}`"
-            class="border border-warm-300 p-3"
-          >
-            <button type="button" class="w-full text-left" @click="applyCopywriting(item)">
-              <strong class="block text-sm">{{ item.subtitle }}</strong>
-              <span v-if="item.sellingPoints?.length" class="mt-2 block text-[11px] leading-relaxed text-ink-faint">
-                {{ item.sellingPoints.join(' · ') }}
-              </span>
-            </button>
-            <div class="mt-3 flex gap-2 border-t border-warm-300 pt-3">
-              <input
-                v-model="copyFeedback[index]"
-                class="field-input min-w-0 flex-1 text-xs"
-                placeholder="例如：卖点更突出口感"
-                @keyup.enter="onRefine(index)"
-              />
-              <button
-                type="button"
-                class="btn-rect whitespace-nowrap px-2 py-1 text-xs"
-                :disabled="state.refiningIndex >= 0"
-                @click="onRefine(index)"
-              >{{ state.refiningIndex === index ? '修改中…' : '按意见修改' }}</button>
-            </div>
-          </div>
+            :key="index"
+            :variant="item"
+            :index="index"
+            :busy="state.refiningIndex >= 0"
+            @apply="applyCopywriting(item)"
+            @refine="refineCopywriting(index, $event)"
+          />
         </div>
         <div class="space-y-3">
           <div>

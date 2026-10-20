@@ -390,10 +390,13 @@ def translate_product_name(payload: dict[str, Any]):
 
 @app.post("/api/copy/refine")
 def refine_copy(payload: dict[str, Any]):
-    """根据用户意见仅调整一组文案，其他候选不变。"""
+    """根据用户意见仅调整一组文案，其他候选不变。
+
+    支持两种入参：逐条填写的 `feedback`（推荐），或一句自然语言 `instruction`（兼容旧前端）。
+    """
     job_id = str(payload.get("jobId", ""))
     current = payload.get("current")
-    instruction = str(payload.get("instruction", "")).strip()
+    instruction = str(payload.get("instruction", "")).strip() or _feedback_instruction(payload.get("feedback"))
     if not isinstance(current, dict) or not instruction:
         raise HTTPException(400, "需要当前文案和修改意见。")
     if not ai_configured():
@@ -406,6 +409,34 @@ def refine_copy(payload: dict[str, Any]):
         raise
     except Exception as error:
         raise HTTPException(502, f"AI文案修改失败：{error}") from error
+
+
+FEEDBACK_FIELD_LABELS = {
+    "subtitle": "中文商品名",
+    "footer": "品牌口号",
+    "launchText": "右上标签",
+    "badgeText": "徽章文字",
+}
+
+
+def _feedback_instruction(feedback: Any) -> str:
+    """把逐条修改意见拼成一句明确的指令，只列出用户真正填了的条目。"""
+    if not isinstance(feedback, dict):
+        return ""
+    lines: list[str] = []
+    for key, label in FEEDBACK_FIELD_LABELS.items():
+        value = str(feedback.get(key, "") or "").strip()[:80]
+        if value:
+            lines.append(f"- {label}：{value}")
+    points = feedback.get("sellingPoints")
+    if isinstance(points, (list, tuple)):
+        for index, item in enumerate(points[:3], start=1):
+            value = str(item or "").strip()[:80]
+            if value:
+                lines.append(f"- 卖点 {index}：{value}")
+    if not lines:
+        return ""
+    return "请只修改下面这些条目，其余条目必须原样保留：\n" + "\n".join(lines)
 
 
 @app.post("/api/generate")

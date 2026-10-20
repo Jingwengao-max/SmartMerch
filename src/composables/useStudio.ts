@@ -6,6 +6,7 @@ import {
   generatePosters,
   refineCopy,
   translateProductName,
+  type CopyFeedback,
   type CopywritingOption,
   type PosterCandidate,
   type PosterDocument,
@@ -94,13 +95,12 @@ function next() { if (canNext.value && step.value < 2) step.value++ }
 function back() { if (step.value > 0 && !state.generating) step.value-- }
 function goTo(index: number) { if (index >= 0 && index <= step.value && !state.generating) step.value = index }
 function applyCopywriting(option: CopywritingOption) {
-  if (!state.feature.trim()) state.feature = option.subtitle
-  if (option.sellingPoints?.length) {
-    state.sellingPoints = [...option.sellingPoints.slice(0, 3), '', ''].slice(0, 3)
-  }
-  state.footer = option.footer || state.footer
-  state.launchText = option.launchText || state.launchText
-  state.badgeText = option.badgeText || state.badgeText
+  // 一键应用：整组覆盖，避免上一组的卖点残留。
+  if (option.subtitle) state.feature = option.subtitle
+  state.sellingPoints = [...(option.sellingPoints ?? []).slice(0, 3), '', ''].slice(0, 3)
+  if (option.footer) state.footer = option.footer
+  if (option.launchText) state.launchText = option.launchText
+  if (option.badgeText) state.badgeText = option.badgeText
 }
 
 async function generateCopySuggestions() {
@@ -144,13 +144,17 @@ async function translateName() {
   }
 }
 
-async function refineCopywriting(index: number, instruction: string) {
+async function refineCopywriting(index: number, feedback: CopyFeedback) {
   const current = state.copywriting[index]
-  if (!current || !instruction.trim() || state.refiningIndex >= 0) return
+  const hasFeedback = [
+    feedback.subtitle, feedback.footer, feedback.launchText, feedback.badgeText,
+    ...feedback.sellingPoints,
+  ].some((item) => item.trim())
+  if (!current || !hasFeedback || state.refiningIndex >= 0) return
   state.refiningIndex = index
   state.error = ''
   try {
-    const result = await refineCopy({ jobId: state.jobId, current, instruction })
+    const result = await refineCopy({ jobId: state.jobId, current, feedback })
     const refined = result.copywriting[0]
     if (refined) state.copywriting[index] = refined
     state.aiWarning = result.warning

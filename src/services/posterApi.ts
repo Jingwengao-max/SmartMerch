@@ -8,6 +8,14 @@ export interface CopywritingOption {
   launchText?: string
   badgeText?: string
 }
+/** 与文案块一一对应的修改意见；留空的条目保持原样。 */
+export interface CopyFeedback {
+  subtitle: string
+  sellingPoints: string[]
+  footer: string
+  launchText: string
+  badgeText: string
+}
 export interface CopyAnalysis {
   category: string
   color: string
@@ -127,13 +135,17 @@ export async function translateProductName(text: string): Promise<string> {
 export async function refineCopy(input: {
   jobId: string
   current: CopywritingOption
-  instruction: string
+  feedback: CopyFeedback
 }): Promise<CopyAnalysis & { jobId: string }> {
   return parseResponse<CopyAnalysis & { jobId: string }>(
     await fetch(`${API_BASE}/api/copy/refine`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(input),
+      body: JSON.stringify({
+        jobId: input.jobId,
+        current: input.current,
+        feedback: input.feedback,
+      }),
     })
   )
 }
