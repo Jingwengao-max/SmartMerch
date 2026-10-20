@@ -22,6 +22,11 @@ const {
   startGenerate,
   reset,
   setFile,
+  textValue,
+  setText,
+  listValue,
+  setList,
+  previewTitle,
 } = useStudio()
 
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -33,9 +38,6 @@ function onPick(e: Event) {
   const f = target.files?.[0]
   if (f) setFile(f)
   target.value = ''
-}
-function onChineseBlur() {
-  if (state.feature.trim() && !state.name.trim()) translateName()
 }
 </script>
 
@@ -76,7 +78,7 @@ function onChineseBlur() {
       <!-- 1 风格 -->
       <div v-else-if="step === 1" class="space-y-5">
         <p class="text-sm leading-relaxed text-ink-soft">
-          选择海报的视觉风格。其余风格还在导入中，目前只能使用「杂志编辑」。
+          选择海报的视觉风格。灰色项为尚未导入的风格，暂时不可选。
         </p>
         <button
           v-for="item in styles"
@@ -107,31 +109,10 @@ function onChineseBlur() {
 
       <!-- 2 信息与文案 -->
       <div v-else-if="step === 2" class="space-y-6">
-        <label class="block">
-          <p class="font-display text-lg leading-snug">中文商品名</p>
-          <input
-            v-model="state.feature"
-            class="field-input mt-3"
-            placeholder="例如：草莓奶油丹麦"
-            @blur="onChineseBlur"
-          />
-        </label>
-        <label class="block">
-          <div class="flex items-center justify-between gap-3">
-            <p class="font-display text-lg leading-snug">英文商品名</p>
-            <button
-              type="button"
-              class="text-xs text-sage disabled:opacity-40"
-              :disabled="state.translating || !state.feature.trim()"
-              @click="translateName"
-            >{{ state.translating ? '生成中…' : '生成英文名' }}</button>
-          </div>
-          <input v-model="state.name" class="field-input mt-3" placeholder="例如：Strawberry Danish" />
-        </label>
-        <div class="flex items-center justify-between gap-3 border-t border-warm-300 pt-4">
+        <div class="flex items-center justify-between gap-3 border-b border-warm-300 pb-4">
           <div>
             <p class="font-display text-lg leading-snug">AI 宣传文案推荐</p>
-            <p class="mt-1 text-xs text-ink-faint">视觉模型会结合商品图片生成卖点与口号。</p>
+            <p class="mt-1 text-xs text-ink-faint">视觉模型会结合商品图片，按当前风格的条目生成文案。</p>
           </div>
           <button
             type="button"
@@ -147,6 +128,7 @@ function onChineseBlur() {
             v-for="(item, index) in state.copywriting"
             :key="index"
             :variant="item"
+            :fields="state.fields"
             :index="index"
             :busy="state.refiningIndex >= 0"
             @apply="applyCopywriting(item)"
@@ -154,33 +136,40 @@ function onChineseBlur() {
           />
         </div>
         <p v-if="state.error" class="text-sm text-red-700">{{ state.error }}</p>
-        <div class="space-y-3">
-          <div>
-            <p class="font-display text-lg leading-snug">商品卖点</p>
-            <p class="mt-1 text-xs text-ink-faint">最多填写 3 条，系统会根据实际数量自动调整位置。</p>
-          </div>
-          <label v-for="(_, index) in state.sellingPoints" :key="index" class="block">
-            <span class="text-xs text-ink-soft">卖点 {{ index + 1 }}</span>
-            <textarea
-              v-model="state.sellingPoints[index]"
-              class="field-textarea mt-1"
-              :placeholder="index === 0 ? '例如：精选新鲜草莓，搭配香滑奶油' : index === 1 ? '例如：层层起酥，外脆内软' : '选填第三条卖点'"
-              maxlength="60"
-            ></textarea>
-          </label>
-        </div>
-        <label class="block">
-          <p class="font-display text-lg leading-snug">底部品牌口号</p>
-          <input v-model="state.footer" class="field-input mt-3" placeholder="例如：现做现卖 · 美味看得见" />
-        </label>
-        <div class="grid grid-cols-2 gap-3">
-          <label class="block">
-            <p class="text-sm text-ink-soft">右上标签</p>
-            <input v-model="state.launchText" class="field-input mt-2" placeholder="新品上市" />
-          </label>
-          <label class="block">
-            <p class="text-sm text-ink-soft">徽章文字</p>
-            <input v-model="state.badgeText" class="field-input mt-2" placeholder="NEW!" />
+        <div class="space-y-5">
+          <p class="text-sm text-ink-soft">也可以直接修改下面的内容：</p>
+          <p v-if="!state.fields.length" class="text-xs text-ink-faint">正在加载当前风格的文案条目…</p>
+          <label v-for="field in state.fields" :key="field.key" class="block">
+            <div class="flex items-center justify-between gap-3">
+              <p class="font-display text-lg leading-snug">{{ field.label }}</p>
+              <button
+                v-if="field.key === 'title'"
+                type="button"
+                class="text-xs text-sage disabled:opacity-40"
+                :disabled="state.translating || !textValue('subtitle').trim()"
+                @click="translateName"
+              >{{ state.translating ? '生成中…' : '生成英文名' }}</button>
+            </div>
+            <template v-if="field.kind === 'text'">
+              <input
+                class="field-input mt-2"
+                :value="textValue(field.key)"
+                :maxlength="field.maxChars"
+                :placeholder="field.key === 'title' ? '例如：Strawberry Danish' : field.label"
+                @input="setText(field.key, ($event.target as HTMLInputElement).value)"
+              />
+            </template>
+            <template v-else>
+              <input
+                v-for="index in field.maxItems"
+                :key="index"
+                class="field-input mt-2"
+                :value="listValue(field.key, index - 1)"
+                :maxlength="field.maxChars"
+                :placeholder="`${field.label} ${index}`"
+                @input="setList(field.key, index - 1, ($event.target as HTMLInputElement).value)"
+              />
+            </template>
           </label>
         </div>
       </div>
@@ -190,8 +179,8 @@ function onChineseBlur() {
         <template v-if="!state.generating && !state.generated">
           <p class="text-sm leading-relaxed text-ink-soft">一切就绪，让 AI 开始为它创作。</p>
           <div class="space-y-1.5 border-t border-warm-300 pt-4 text-sm text-ink-soft">
-            <p>商品：{{ state.name || '—' }}</p>
-            <p>核心文案：{{ state.feature || '未填写' }}</p>
+            <p>商品：{{ previewTitle || '—' }}</p>
+            <p>风格：{{ selectedStyle?.name ?? '—' }}</p>
           </div>
         </template>
 

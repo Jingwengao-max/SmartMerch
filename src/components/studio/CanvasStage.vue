@@ -4,7 +4,7 @@ import { useStudio } from '@/composables/useStudio'
 import PosterPreview from './PosterPreview.vue'
 import LayerEditor from './LayerEditor.vue'
 
-const { state, step, selectedCandidate, selectedStyle, setFile, updateEditorDocument } = useStudio()
+const { state, step, selectedCandidate, selectedStyle, previewTitle, setFile, updateEditorDocument } = useStudio()
 
 const dragging = ref(false)
 
@@ -93,7 +93,7 @@ function onDrop(e: DragEvent) {
       <PosterPreview
         :bg="posterStyle.bg"
         :fg="posterStyle.fg"
-        :title="state.name"
+        :title="previewTitle"
         :tag="posterStyle.en"
         :image="state.image"
         :generated-image="selectedCandidate?.previewUrl"

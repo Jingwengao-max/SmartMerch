@@ -2,14 +2,17 @@ import { computed, reactive, ref } from 'vue'
 import {
   assetUrl,
   cutoutProduct,
+  fetchStyleSpecs,
   generateCopy,
   generatePosters,
   refineCopy,
   translateProductName,
   type CopyFeedback,
-  type CopywritingOption,
+  type CopyVariant,
   type PosterCandidate,
   type PosterDocument,
+  type StyleField,
+  type StyleSpec,
 } from '@/services/posterApi'
 
 export const steps = [
@@ -37,7 +40,16 @@ export const styles: Style[] = [
     available: true, bg: '#faf5ed', fg: '#2b2723',
   },
   { key: 'natural', name: '自然', en: 'Natural', desc: '清新、有机、贴近自然', available: false, bg: '#7b8a72', fg: '#f6f3ec' },
-  { key: 'minimal', name: '极简', en: 'Minimal', desc: '留白、克制、干净', available: false, bg: '#efe9de', fg: '#2b2723' },
+  {
+    key: 'minimal', name: '极简', en: 'Minimal',
+    desc: '大面积留白、圆形徽章、无装饰底纹',
+    available: true, bg: '#fbfbf8', fg: '#2b2723',
+  },
+  {
+    key: 'style2', name: '风格二', en: 'Style 2',
+    desc: '商品名、三条卖点、口号与介绍',
+    available: true, bg: '#f5f5f5', fg: '#2b2723',
+  },
   { key: 'retro', name: '复古', en: 'Retro', desc: '怀旧、温暖、有年代感', available: false, bg: '#a87e52', fg: '#f6f3ec' },
   { key: 'festive', name: '节日', en: 'Festive', desc: '喜庆、热闹、有氛围', available: false, bg: '#c08b62', fg: '#fff8ee' },
   { key: 'tech', name: '科技', en: 'Tech', desc: '简洁、未来、理性', available: false, bg: '#4e5c46', fg: '#f6f3ec' },
@@ -57,13 +69,11 @@ const state = reactive({
   translating: false,
   refiningIndex: -1,
   style: null as string | null,
-  name: '',
-  feature: '',
-  sellingPoints: ['', '', ''] as string[],
-  footer: '',
-  launchText: '新品上市',
-  badgeText: 'NEW!',
-  copywriting: [] as CopywritingOption[],
+  styleSpecs: {} as Record<string, StyleSpec>,
+  fields: [] as StyleField[],
+  copy: {} as CopyVariant,
+  copyByStyle: {} as Record<string, CopyVariant>,
+  copywriting: [] as CopyVariant[],
   aiWarning: '',
   generating: false,
   genStep: -1,
@@ -76,11 +86,18 @@ const state = reactive({
 
 const step = ref(0)
 const selectedStyle = computed<Style | null>(() => styles.find((item) => item.key === state.style) ?? null)
+const hasCopy = computed(() => Object.values(state.copy).some((value) => (
+  Array.isArray(value) ? value.some((item) => item.trim()) : String(value ?? '').trim()
+)))
+const previewTitle = computed(() => {
+  const source = state.copy.title || state.copy.name || state.copy.subtitle || ''
+  return String(source)
+})
 const selectedCandidate = computed<PosterCandidate | null>(() => state.candidates[state.selectedCandidateIndex] ?? null)
 const canNext = computed(() => {
   if (step.value === 0) return !!state.sourceFile && state.bgRemoved && !state.removing
   if (step.value === 1) return !!selectedStyle.value
-  if (step.value === 2) return state.name.trim().length > 0 && state.feature.trim().length > 0
+  if (step.value === 2) return hasCopy.value
   return false
 })
 
@@ -122,39 +139,73 @@ async function setFile(file: File) {
 function next() { if (canNext.value && step.value < 3) step.value++ }
 function back() { if (step.value > 0 && !state.generating) step.value-- }
 function goTo(index: number) { if (index >= 0 && index <= step.value && !state.generating) step.value = index }
+
+let specsLoaded = false
+async function loadStyleSpecs() {
+  if (specsLoaded) return
+  specsLoaded = true
+  try {
+    state.styleSpecs = await fetchStyleSpecs()
+  } catch {
+    specsLoaded = false
+  }
+}
+
 function selectStyle(key: string) {
   const target = styles.find((item) => item.key === key)
-  if (target?.available) state.style = key
+  if (!target?.available) return
+  if (state.style && state.style !== key) {
+    state.copyByStyle[state.style] = { ...state.copy }
+  }
+  state.style = key
+  state.fields = state.styleSpecs[key]?.fields ?? []
+  state.copy = { ...(state.copyByStyle[key] ?? {}) }
+  state.copywriting = []
+  state.aiWarning = ''
 }
-function applyCopywriting(option: CopywritingOption) {
-  // 一键应用：整组覆盖，避免上一组的卖点残留。
-  if (option.subtitle) state.feature = option.subtitle
-  state.sellingPoints = [...(option.sellingPoints ?? []).slice(0, 3), '', ''].slice(0, 3)
-  if (option.footer) state.footer = option.footer
-  if (option.launchText) state.launchText = option.launchText
-  if (option.badgeText) state.badgeText = option.badgeText
+
+function textValue(key: string): string {
+  const value = state.copy[key]
+  return typeof value === 'string' ? value : ''
+}
+
+function setText(key: string, value: string) {
+  state.copy[key] = value
+}
+
+function listValue(key: string, index: number): string {
+  const value = state.copy[key]
+  return Array.isArray(value) ? value[index] ?? '' : ''
+}
+
+function setList(key: string, index: number, value: string) {
+  const current = state.copy[key]
+  const list = Array.isArray(current) ? [...current] : []
+  while (list.length <= index) list.push('')
+  list[index] = value
+  state.copy[key] = list
+}
+
+function applyCopywriting(option: CopyVariant) {
+  const next: CopyVariant = { ...state.copy }
+  for (const [key, value] of Object.entries(option)) {
+    next[key] = Array.isArray(value) ? [...value] : String(value)
+  }
+  state.copy = next
 }
 
 async function generateCopySuggestions() {
-  if (!state.jobId || state.analyzing) return
+  if (!state.jobId || state.analyzing || !state.style) return
   state.analyzing = true
   state.error = ''
   try {
     const result = await generateCopy({
       jobId: state.jobId,
-      name: state.name,
-      feature: state.feature,
-      sellingPoints: state.sellingPoints,
-      footer: state.footer,
-      launchText: state.launchText,
-      badgeText: state.badgeText,
+      style: state.style,
+      context: { ...state.copy },
     })
     state.copywriting = result.copywriting
     state.aiWarning = result.warning
-    const first = result.copywriting[0]
-    if (first) {
-      if (!state.feature.trim()) state.feature = first.subtitle
-    }
   } catch (error) {
     state.aiWarning = error instanceof Error ? error.message : '文案生成失败。'
   } finally {
@@ -163,12 +214,12 @@ async function generateCopySuggestions() {
 }
 
 async function translateName() {
-  const chineseName = state.feature.trim()
+  const chineseName = String(state.copy.subtitle || '').trim()
   if (!chineseName || state.translating) return
   state.translating = true
   state.aiWarning = ''
   try {
-    state.name = await translateProductName(chineseName)
+    state.copy.title = await translateProductName(chineseName)
   } catch (error) {
     state.aiWarning = error instanceof Error ? error.message : '英文名生成失败，请稍后重试。'
   } finally {
@@ -178,15 +229,16 @@ async function translateName() {
 
 async function refineCopywriting(index: number, feedback: CopyFeedback) {
   const current = state.copywriting[index]
-  const hasFeedback = [
-    feedback.subtitle, feedback.footer, feedback.launchText, feedback.badgeText,
-    ...feedback.sellingPoints,
-  ].some((item) => item.trim())
-  if (!current || !hasFeedback || state.refiningIndex >= 0) return
+  const hasFeedback = Object.values(feedback).some((value) => (
+    Array.isArray(value) ? value.some((item) => item.trim()) : String(value ?? '').trim()
+  ))
+  if (!current || !hasFeedback || state.refiningIndex >= 0 || !state.style) return
   state.refiningIndex = index
   state.error = ''
   try {
-    const result = await refineCopy({ jobId: state.jobId, current, feedback })
+    const result = await refineCopy({
+      jobId: state.jobId, style: state.style, current, feedback,
+    })
     const refined = result.copywriting[0]
     if (refined) state.copywriting[index] = refined
     state.aiWarning = result.warning
@@ -205,7 +257,7 @@ function selectCandidate(index: number) {
 function updateEditorDocument(document: PosterDocument) { state.editorDocument = document }
 
 async function startGenerate() {
-  if (state.generating || !state.sourceFile || !state.name.trim()) return
+  if (state.generating || !state.sourceFile || !state.style || !hasCopy.value) return
   state.generating = true
   state.generated = false
   state.genStep = 0
@@ -216,13 +268,8 @@ async function startGenerate() {
   try {
     const result = await generatePosters({
       image: state.sourceFile,
-      name: state.name,
-      feature: state.feature,
-      sellingPoints: state.sellingPoints,
-      footer: state.footer,
-      launchText: state.launchText,
-      badgeText: state.badgeText,
-      style: state.style ?? 'editorial',
+      style: state.style,
+      copy: { ...state.copy },
     })
     state.jobId = result.jobId
     state.candidates = result.candidates.map((item) => ({ ...item, previewUrl: assetUrl(item.previewUrl) }))
@@ -244,21 +291,21 @@ function reset() {
   if (state.image?.startsWith('blob:')) URL.revokeObjectURL(state.image)
   Object.assign(state, {
     sourceFile: null, image: null, imageName: '', cutoutUrl: '', jobId: '', removing: false,
-    bgRemoved: false, analyzing: false, translating: false, refiningIndex: -1, name: '', feature: '',
-    style: null,
-    sellingPoints: ['', '', ''], footer: '', launchText: '新品上市', badgeText: 'NEW!',
-    copywriting: [], aiWarning: '', generating: false, genStep: -1, generated: false,
+    bgRemoved: false, analyzing: false, translating: false, refiningIndex: -1,
+    style: null, fields: [], copy: {}, copyByStyle: {}, copywriting: [],
+    aiWarning: '', generating: false, genStep: -1, generated: false,
     candidates: [], editorDocument: null, selectedCandidateIndex: 0, error: '',
   })
   step.value = 0
+  loadStyleSpecs()
 }
 
 export function useStudio() {
   return {
-    steps, genSteps, state, step, selectedCandidate, canNext,
+    steps, genSteps, state, step, selectedCandidate, canNext, previewTitle, hasCopy,
     styles, selectedStyle, selectStyle,
     setFile, next, back, goTo, applyCopywriting, generateCopySuggestions, translateName,
-    refineCopywriting, selectCandidate,
+    refineCopywriting, selectCandidate, textValue, setText, listValue, setList,
     updateEditorDocument, startGenerate, reset,
   }
 }

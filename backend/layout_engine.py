@@ -15,13 +15,19 @@ LXGW_WENKAI = (
 )
 
 
-def load_font(size, weight=400):
-    for path in (
-        LXGW_WENKAI,
-        "C:/Windows/Fonts/simkai.ttf", "C:/Windows/Fonts/STKAITI.TTF",
-        "C:/Windows/Fonts/FZSTK.TTF", "C:/Windows/Fonts/msyh.ttc",
-        "C:/Windows/Fonts/simhei.ttf", "C:/Windows/Fonts/simsun.ttc",
-    ):
+def load_font(size, weight=400, family=None):
+    if family == "hei":
+        candidates = ("C:/Windows/Fonts/simhei.ttf", "C:/Windows/Fonts/msyh.ttc")
+    elif family == "bold":
+        candidates = ("C:/Windows/Fonts/msyhbd.ttc", "C:/Windows/Fonts/msyh.ttc")
+    else:
+        candidates = (
+            LXGW_WENKAI,
+            "C:/Windows/Fonts/simkai.ttf", "C:/Windows/Fonts/STKAITI.TTF",
+            "C:/Windows/Fonts/FZSTK.TTF", "C:/Windows/Fonts/msyh.ttc",
+            "C:/Windows/Fonts/simhei.ttf", "C:/Windows/Fonts/simsun.ttc",
+        )
+    for path in candidates:
         if Path(path).exists():
             return ImageFont.truetype(str(path), size)
     raise FileNotFoundError("找不到中文字体，请在 layout_engine.py 的 load_font() 中指定字体。")

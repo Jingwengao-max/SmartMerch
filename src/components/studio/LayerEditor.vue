@@ -161,16 +161,51 @@ async function download() {
             }"
             @pointerdown="startDrag($event, element)"
           >
-            <img v-if="element.type === 'image'" :src="assetUrl(element.src)" alt="图层" class="h-full w-full object-contain pointer-events-none" />
+            <div
+              v-if="element.type === 'shape' && element.shape === 'tech-corner'"
+              class="relative pointer-events-none h-full w-full"
+              :style="{ opacity: element.opacity ?? 1 }"
+            >
+              <span class="absolute left-0 top-0 h-1/3 w-1/3 border-l-2 border-t-2" :style="{ borderColor: element.fill }"></span>
+              <span class="absolute right-0 top-0 h-1/3 w-1/3 border-r-2 border-t-2" :style="{ borderColor: element.fill }"></span>
+              <span class="absolute bottom-0 left-0 h-1/3 w-1/3 border-b-2 border-l-2" :style="{ borderColor: element.fill }"></span>
+              <span class="absolute bottom-0 right-0 h-1/3 w-1/3 border-b-2 border-r-2" :style="{ borderColor: element.fill }"></span>
+              <span class="absolute left-1/2 top-1/2 h-[3px] w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full" :style="{ background: element.fill }"></span>
+            </div>
+            <div
+              v-else-if="element.type === 'shape' && element.shape === 'soft-shadow'"
+              class="pointer-events-none h-full w-full"
+              :style="{
+                background: element.fill || '#ffffff',
+                opacity: element.opacity ?? 0.2,
+                borderRadius: '50%',
+                filter: `blur(${(element.blur || 20) * scale}px)`,
+              }"
+            ></div>
+            <div
+              v-else-if="element.type === 'shape'"
+              class="pointer-events-none h-full w-full"
+              :style="{
+                background: element.fill || '#ffffff',
+                opacity: element.opacity ?? 0.5,
+                borderRadius: `${(element.radius || 0) * scale}px`,
+              }"
+            ></div>
+            <img v-else-if="element.type === 'image'" :src="assetUrl(element.src)" alt="图层" class="h-full w-full object-contain pointer-events-none" />
             <div
               v-else
               class="flex h-full w-full whitespace-pre-line leading-[1.18]"
               :style="{
                 fontSize: `${(element.fontSize || 40) * scale}px`,
                 fontWeight: element.fontWeight || 400,
-                fontFamily: element.fontFamily || 'LXGW WenKai, STKaiti, serif',
+                fontFamily: element.fontFamily === 'hei'
+                  ? 'SimHei, Microsoft YaHei, sans-serif'
+                  : element.fontFamily || 'LXGW WenKai, STKaiti, serif',
                 color: element.color || '#222',
                 textAlign: element.textAlign || 'left',
+                letterSpacing: element.letterSpacing ? `${element.letterSpacing * scale}px` : undefined,
+                lineHeight: element.lineHeight ? `${element.lineHeight * scale}px` : undefined,
+                opacity: element.opacity ?? 1,
                 alignItems: element.verticalAlign === 'middle' ? 'center' : element.verticalAlign === 'bottom' ? 'flex-end' : 'flex-start',
                 justifyContent: element.textAlign === 'center' ? 'center' : element.textAlign === 'right' ? 'flex-end' : 'flex-start',
               }"

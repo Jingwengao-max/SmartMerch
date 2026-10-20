@@ -90,6 +90,8 @@
     "outerPadding": 54,
     "organicBackdrop": true,
     "footerScallop": true,
-    "oversizedHeadline": true
+    "oversizedHeadline": true,
+    "badgeShape": "star",
+    "productDoodle": true
   }
 }

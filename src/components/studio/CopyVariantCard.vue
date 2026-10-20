@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { reactive, ref, watch } from 'vue'
-import type { CopyFeedback, CopywritingOption } from '@/services/posterApi'
+import type { CopyFeedback, CopyVariant, StyleField } from '@/services/posterApi'
 
 const props = defineProps<{
-  variant: CopywritingOption
+  variant: CopyVariant
+  fields: StyleField[]
   index: number
   busy?: boolean
 }>()
@@ -11,20 +12,13 @@ const emit = defineEmits<{ apply: []; refine: [feedback: CopyFeedback] }>()
 
 const open = ref(false)
 const hint = ref('')
-const feedback = reactive<CopyFeedback>({
-  subtitle: '',
-  sellingPoints: [],
-  footer: '',
-  launchText: '',
-  badgeText: '',
-})
+const feedback = reactive<CopyFeedback>({})
 
 function reset() {
-  feedback.subtitle = ''
-  feedback.sellingPoints = (props.variant.sellingPoints ?? []).map(() => '')
-  feedback.footer = ''
-  feedback.launchText = ''
-  feedback.badgeText = ''
+  for (const key of Object.keys(feedback)) delete feedback[key]
+  for (const field of props.fields) {
+    feedback[field.key] = field.kind === 'list' ? [] : ''
+  }
 }
 
 function toggle() {
@@ -33,24 +27,49 @@ function toggle() {
   if (open.value) reset()
 }
 
+function textOf(key: string): string {
+  const value = props.variant[key]
+  if (typeof value === 'string') return value
+  return Array.isArray(value) ? value.join(' / ') : ''
+}
+
+function listOf(key: string): string[] {
+  const value = props.variant[key]
+  return Array.isArray(value) ? value : []
+}
+
+function feedbackText(key: string): string {
+  const value = feedback[key]
+  return typeof value === 'string' ? value : ''
+}
+
+function feedbackList(key: string, index: number): string {
+  const value = feedback[key]
+  return Array.isArray(value) ? value[index] ?? '' : ''
+}
+
+function setFeedbackText(key: string, value: string) {
+  feedback[key] = value
+}
+
+function setFeedbackList(key: string, index: number, value: string) {
+  const current = feedback[key]
+  const list = Array.isArray(current) ? [...current] : []
+  while (list.length <= index) list.push('')
+  list[index] = value
+  feedback[key] = list
+}
+
 function submit() {
-  const payload: CopyFeedback = {
-    subtitle: feedback.subtitle,
-    sellingPoints: (props.variant.sellingPoints ?? []).map((_, i) => feedback.sellingPoints[i] ?? ''),
-    footer: feedback.footer,
-    launchText: feedback.launchText,
-    badgeText: feedback.badgeText,
-  }
-  const hasAny = [
-    payload.subtitle, payload.footer, payload.launchText, payload.badgeText,
-    ...payload.sellingPoints,
-  ].some((item) => item.trim())
+  const hasAny = Object.values(feedback).some((value) => (
+    Array.isArray(value) ? value.some((item) => item.trim()) : String(value ?? '').trim()
+  ))
   if (!hasAny) {
     hint.value = '先在至少一个条目下面填写修改意见'
     return
   }
   hint.value = ''
-  emit('refine', payload)
+  emit('refine', JSON.parse(JSON.stringify(feedback)) as CopyFeedback)
 }
 
 // 修改成功后这一组会被替换，届时清空意见输入。
@@ -66,69 +85,50 @@ watch(() => props.variant, () => {
         方案 {{ index + 1 }}
       </p>
       <div class="flex items-center gap-3">
-        <button
-          type="button"
-          class="text-xs text-ink-soft underline hover:text-ink"
-          @click="toggle"
-        >
+        <button type="button" class="text-xs text-ink-soft underline hover:text-ink" @click="toggle">
           {{ open ? '收起意见' : '逐条提意见' }}
         </button>
-        <button
-          type="button"
-          class="btn-rect px-2 py-1 text-xs"
-          @click="$emit('apply')"
-        >
+        <button type="button" class="btn-rect px-2 py-1 text-xs" @click="$emit('apply')">
           一键应用
         </button>
       </div>
     </div>
 
-    <!-- 每一块后面就是一个独立图层，所以这里也按块列出来 -->
+    <!-- 每一块后面就是一个独立图层，所以按风格字段逐条列出 -->
     <dl class="mt-2.5 space-y-2">
-      <div>
-        <div class="flex gap-3">
-          <dt class="w-16 shrink-0 pt-0.5 text-[11px] text-ink-faint">中文商品名</dt>
-          <dd class="flex-1 text-sm leading-snug">{{ variant.subtitle || '—' }}</dd>
+      <template v-for="field in fields" :key="field.key">
+        <div v-if="field.kind === 'text'">
+          <div class="flex gap-3">
+            <dt class="w-16 shrink-0 pt-0.5 text-[11px] text-ink-faint">{{ field.label }}</dt>
+            <dd class="flex-1 text-sm leading-snug whitespace-pre-line">{{ textOf(field.key) || '—' }}</dd>
+          </div>
+          <input
+            v-if="open"
+            class="feedback"
+            :value="feedbackText(field.key)"
+            placeholder="例如：再简洁一点"
+            @input="setFeedbackText(field.key, ($event.target as HTMLInputElement).value)"
+          />
         </div>
-        <input v-if="open" v-model="feedback.subtitle" class="feedback" placeholder="例如：再简洁一点" />
-      </div>
 
-      <div v-for="(point, pointIndex) in (variant.sellingPoints ?? [])" :key="pointIndex">
-        <div class="flex gap-3">
-          <dt class="w-16 shrink-0 pt-0.5 text-[11px] text-ink-faint">卖点 {{ pointIndex + 1 }}</dt>
-          <dd class="flex-1 text-sm leading-snug">{{ point }}</dd>
+        <div v-else>
+          <div v-for="(item, itemIndex) in listOf(field.key)" :key="itemIndex">
+            <div class="flex gap-3">
+              <dt class="w-16 shrink-0 pt-0.5 text-[11px] text-ink-faint">
+                {{ field.label }} {{ itemIndex + 1 }}
+              </dt>
+              <dd class="flex-1 text-sm leading-snug">{{ item }}</dd>
+            </div>
+            <input
+              v-if="open"
+              class="feedback"
+              :value="feedbackList(field.key, itemIndex)"
+              placeholder="例如：再短一点"
+              @input="setFeedbackList(field.key, itemIndex, ($event.target as HTMLInputElement).value)"
+            />
+          </div>
         </div>
-        <input
-          v-if="open"
-          v-model="feedback.sellingPoints[pointIndex]"
-          class="feedback"
-          placeholder="例如：更突出保温效果"
-        />
-      </div>
-
-      <div>
-        <div class="flex gap-3">
-          <dt class="w-16 shrink-0 pt-0.5 text-[11px] text-ink-faint">品牌口号</dt>
-          <dd class="flex-1 text-sm leading-snug">{{ variant.footer || '—' }}</dd>
-        </div>
-        <input v-if="open" v-model="feedback.footer" class="feedback" placeholder="例如：更像品牌广告语" />
-      </div>
-
-      <div>
-        <div class="flex gap-3">
-          <dt class="w-16 shrink-0 pt-0.5 text-[11px] text-ink-faint">右上标签</dt>
-          <dd class="flex-1 text-sm leading-snug">{{ variant.launchText || '—' }}</dd>
-        </div>
-        <input v-if="open" v-model="feedback.launchText" class="feedback" placeholder="例如：改成限时新品" />
-      </div>
-
-      <div>
-        <div class="flex gap-3">
-          <dt class="w-16 shrink-0 pt-0.5 text-[11px] text-ink-faint">徽章</dt>
-          <dd class="flex-1 text-sm leading-snug">{{ variant.badgeText || '—' }}</dd>
-        </div>
-        <input v-if="open" v-model="feedback.badgeText" class="feedback" placeholder="例如：改成 HOT" />
-      </div>
+      </template>
     </dl>
 
     <button

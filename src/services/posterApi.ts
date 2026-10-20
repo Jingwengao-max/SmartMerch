@@ -1,21 +1,26 @@
 const DEFAULT_API_BASE = import.meta.env.DEV ? 'http://127.0.0.1:8000' : window.location.origin
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE).replace(/\/$/, '')
 
-export interface CopywritingOption {
-  subtitle: string
-  sellingPoints?: string[]
-  footer?: string
-  launchText?: string
-  badgeText?: string
+/** 一条文案：键名由风格配置决定，值是字符串或字符串数组。 */
+export type CopyVariant = Record<string, string | string[]>
+
+export interface StyleField {
+  key: string
+  label: string
+  kind: 'text' | 'list'
+  maxChars: number
+  maxItems: number
+  generated: boolean
 }
+
+export interface StyleSpec {
+  key: string
+  label: string
+  fields: StyleField[]
+}
+
 /** 与文案块一一对应的修改意见；留空的条目保持原样。 */
-export interface CopyFeedback {
-  subtitle: string
-  sellingPoints: string[]
-  footer: string
-  launchText: string
-  badgeText: string
-}
+export type CopyFeedback = Record<string, string | string[]>
 export interface CopyAnalysis {
   category: string
   color: string
@@ -23,15 +28,20 @@ export interface CopyAnalysis {
   scene: string[]
   confidence: number
   warning: string
-  copywriting: CopywritingOption[]
+  copywriting: CopyVariant[]
   source: 'ai' | 'local_fallback'
 }
 export interface PosterElement {
   id: string
-  type: 'image' | 'text'
+  type: 'image' | 'text' | 'shape'
   role?: string
   src?: string
   content?: string
+  shape?: 'rect' | 'tech-corner' | 'soft-shadow'
+  fill?: string
+  opacity?: number
+  radius?: number
+  blur?: number
   x: number
   y: number
   width: number
@@ -41,6 +51,8 @@ export interface PosterElement {
   fontSize?: number
   fontWeight?: number
   fontFamily?: string
+  letterSpacing?: number
+  lineHeight?: number
   color?: string
   textAlign?: 'left' | 'center' | 'right'
   verticalAlign?: 'top' | 'middle' | 'bottom'
@@ -59,15 +71,7 @@ export interface PosterCandidate extends PosterDocument {
 }
 export interface GenerateResult {
   jobId: string
-  input: {
-    name: string
-    feature: string
-    sellingPoints: string[]
-    footer: string
-    launchText: string
-    badgeText: string
-    price: string
-  }
+  input: Record<string, unknown>
   candidates: PosterCandidate[]
 }
 
@@ -99,23 +103,22 @@ export async function analyzeCopy(file: File): Promise<CopyAnalysis> {
   )
 }
 
+export async function fetchStyleSpecs(): Promise<Record<string, StyleSpec>> {
+  const payload = await parseResponse<{ styles: StyleSpec[] }>(
+    await fetch(`${API_BASE}/api/styles`)
+  )
+  return Object.fromEntries(payload.styles.map((item) => [item.key, item]))
+}
+
 export async function generateCopy(input: {
   jobId: string
-  name: string
-  feature: string
-  sellingPoints: string[]
-  footer: string
-  launchText: string
-  badgeText: string
+  style: string
+  context: CopyVariant
 }): Promise<CopyAnalysis & { jobId: string }> {
   const body = new FormData()
   body.append('jobId', input.jobId)
-  body.append('name', input.name)
-  body.append('feature', input.feature)
-  body.append('selling_points', JSON.stringify(input.sellingPoints.filter(Boolean).slice(0, 3)))
-  body.append('footer', input.footer)
-  body.append('launch_text', input.launchText)
-  body.append('badge_text', input.badgeText)
+  body.append('style', input.style)
+  body.append('context', JSON.stringify(input.context))
   return parseResponse<CopyAnalysis & { jobId: string }>(
     await fetch(`${API_BASE}/api/copy`, { method: 'POST', body })
   )
@@ -134,7 +137,8 @@ export async function translateProductName(text: string): Promise<string> {
 
 export async function refineCopy(input: {
   jobId: string
-  current: CopywritingOption
+  style: string
+  current: CopyVariant
   feedback: CopyFeedback
 }): Promise<CopyAnalysis & { jobId: string }> {
   return parseResponse<CopyAnalysis & { jobId: string }>(
@@ -143,6 +147,7 @@ export async function refineCopy(input: {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         jobId: input.jobId,
+        style: input.style,
         current: input.current,
         feedback: input.feedback,
       }),
@@ -152,23 +157,13 @@ export async function refineCopy(input: {
 
 export async function generatePosters(input: {
   image: File
-  name: string
-  feature: string
-  sellingPoints: string[]
-  footer: string
-  launchText: string
-  badgeText: string
   style: string
+  copy: CopyVariant
 }): Promise<GenerateResult> {
   const body = new FormData()
   body.append('image', input.image)
-  body.append('name', input.name)
-  body.append('feature', input.feature)
-  body.append('selling_points', JSON.stringify(input.sellingPoints.filter((item) => item.trim()).slice(0, 3)))
-  body.append('footer', input.footer)
-  body.append('launch_text', input.launchText)
-  body.append('badge_text', input.badgeText)
   body.append('style', input.style)
+  body.append('copy', JSON.stringify(input.copy))
   return parseResponse<GenerateResult>(
     await fetch(`${API_BASE}/api/generate`, { method: 'POST', body })
   )

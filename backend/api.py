@@ -24,7 +24,14 @@ from ai_copywriter import (
     translate_with_ai,
 )
 from layout_engine import CANVAS, extract_product_features, load_font
-from learned_layout import adaptive_palette, build_style_background, create_document, load_model
+from learned_layout import (
+    adaptive_palette,
+    build_style_background,
+    create_document,
+    load_model,
+    load_model_for,
+    load_models_for,
+)
 from main import cutout
 from poster_design_adapter import normalize_template
 from poster_design_source import (
@@ -34,6 +41,7 @@ from poster_design_source import (
     load_template as load_poster_design_template,
 )
 from quality_evaluator import evaluate_document
+from style_specs import STYLE_SPECS
 
 
 def _load_local_env() -> None:
@@ -187,15 +195,72 @@ def _render(document: dict[str, Any]) -> Image.Image:
             if rotation:
                 layer = layer.rotate(-rotation, expand=True, resample=Image.Resampling.BICUBIC)
             poster.alpha_composite(layer, (x, y))
+        elif element["type"] == "shape" and element.get("shape") == "rect":
+            fill = str(element.get("fill", "#ffffff"))
+            rgb = tuple(int(fill[index:index + 2], 16) for index in (1, 3, 5))
+            alpha = round(float(element.get("opacity", 0.5)) * 255)
+            layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+            ImageDraw.Draw(layer).rounded_rectangle(
+                (0, 0, width - 1, height - 1),
+                radius=int(element.get("radius", 16)),
+                fill=(*rgb, alpha),
+            )
+            poster.alpha_composite(layer, (x, y))
+        elif element["type"] == "shape" and element.get("shape") == "soft-shadow":
+            fill = str(element.get("fill", "#ffffff"))
+            rgb = tuple(int(fill[index:index + 2], 16) for index in (1, 3, 5))
+            alpha = round(float(element.get("opacity", 0.18)) * 255)
+            blur = int(element.get("blur", 20))
+            # 图层要比晕影本身大，否则模糊会被边界裁成方块。
+            pad = blur * 2
+            layer = Image.new("RGBA", (width + pad * 2, height + pad * 2), (0, 0, 0, 0))
+            ImageDraw.Draw(layer).ellipse(
+                (pad, pad, pad + width - 1, pad + height - 1), fill=(*rgb, alpha)
+            )
+            layer = layer.filter(ImageFilter.GaussianBlur(blur))
+            poster.alpha_composite(layer, (x - pad, y - pad))
+        elif element["type"] == "shape" and element.get("shape") == "tech-corner":
+            fill = str(element.get("fill", "#7e409d"))
+            rgb = tuple(int(fill[index:index + 2], 16) for index in (1, 3, 5))
+            alpha = round(float(element.get("opacity", 1.0)) * 255)
+            layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+            shape_draw = ImageDraw.Draw(layer)
+            arm = max(4, round(min(width, height) * 0.34))
+            line_width = max(1, round(min(width, height) * 0.1))
+            color = (*rgb, alpha)
+            shape_draw.line((0, 0, arm, 0), fill=color, width=line_width)
+            shape_draw.line((0, 0, 0, arm), fill=color, width=line_width)
+            shape_draw.line((width - 1, 0, width - 1 - arm, 0), fill=color, width=line_width)
+            shape_draw.line((width - 1, 0, width - 1, arm), fill=color, width=line_width)
+            shape_draw.line((0, height - 1, arm, height - 1), fill=color, width=line_width)
+            shape_draw.line((0, height - 1, 0, height - 1 - arm), fill=color, width=line_width)
+            shape_draw.line((width - 1, height - 1, width - 1 - arm, height - 1), fill=color, width=line_width)
+            shape_draw.line((width - 1, height - 1, width - 1, height - 1 - arm), fill=color, width=line_width)
+            dot = max(2, round(min(width, height) * 0.1))
+            shape_draw.ellipse(
+                (width / 2 - dot, height / 2 - dot, width / 2 + dot, height / 2 + dot),
+                fill=color,
+            )
+            poster.alpha_composite(layer, (x, y))
         elif element["type"] == "text":
-            draw = ImageDraw.Draw(poster)
+            layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(layer)
             font = load_font(
                 int(element.get("fontSize", 40)),
                 int(element.get("fontWeight", 400)),
+                element.get("fontFamily"),
             )
             content = str(element.get("content", ""))
             align = element.get("textAlign", "left")
-            line_height = round(font.size * 1.18)
+            line_height = int(element.get("lineHeight") or round(font.size * 1.18))
+            spacing = float(element.get("letterSpacing") or 0)
+            color = element.get("color", "#222222")
+            weight = int(element.get("fontWeight", 400))
+            if weight >= 600:
+                # 黑体大标题按字号加粗，避免只描 1px 看不出来。
+                stroke = max(1, round(font.size / 90)) if element.get("fontFamily") == "hei" else 1
+            else:
+                stroke = 0
             lines = content.splitlines() or [""]
             total_height = len(lines) * line_height
             vertical_align = element.get("verticalAlign", "top")
@@ -208,18 +273,32 @@ def _render(document: dict[str, Any]) -> Image.Image:
             for line_index, line in enumerate(lines):
                 box = draw.textbbox((0, 0), line, font=font)
                 line_width = box[2] - box[0]
+                span = line_width + spacing * max(0, len(line) - 1)
                 if align == "center":
-                    line_x = x + max(0, (width - line_width) // 2)
+                    line_x = x + max(0, (width - span) // 2)
                 elif align == "right":
-                    line_x = x + max(0, width - line_width)
+                    line_x = x + max(0, width - span)
                 else:
                     line_x = x
-                draw.text(
-                    (line_x, text_y + line_index * line_height), line, font=font,
-                    fill=element.get("color", "#222222"),
-                    stroke_width=1 if int(element.get("fontWeight", 400)) >= 600 else 0,
-                    stroke_fill=element.get("color", "#222222"),
-                )
+                line_y = text_y + line_index * line_height - y
+                if spacing:
+                    cursor = line_x - x
+                    for character in line:
+                        draw.text(
+                            (cursor, line_y), character, font=font, fill=color,
+                            stroke_width=stroke, stroke_fill=color,
+                        )
+                        cursor += draw.textlength(character, font=font) + spacing
+                else:
+                    draw.text(
+                        (line_x - x, line_y), line, font=font, fill=color,
+                        stroke_width=stroke, stroke_fill=color,
+                    )
+            opacity = max(0.0, min(1.0, float(element.get("opacity", 1))))
+            if opacity < 0.999:
+                alpha = layer.getchannel("A").point(lambda value: round(value * opacity))
+                layer.putalpha(alpha)
+            poster.alpha_composite(layer, (x, y))
     return poster.convert("RGB")
 
 
@@ -250,6 +329,31 @@ def health():
         "layoutModel": layout_model["modelType"],
         "layoutModelVersion": layout_model["modelVersion"],
         "layoutTrainingSamples": layout_model["trainedSamples"],
+    }
+
+
+@app.get("/api/styles")
+def list_styles():
+    """前端据此动态渲染每个风格的文案条目。"""
+    return {
+        "styles": [
+            {
+                "key": key,
+                "label": spec["label"],
+                "fields": [
+                    {
+                        "key": field["key"],
+                        "label": field["label"],
+                        "kind": field["kind"],
+                        "maxChars": field.get("maxChars", 30),
+                        "maxItems": field.get("maxItems", 1),
+                        "generated": field.get("generated", True),
+                    }
+                    for field in spec["fields"]
+                ],
+            }
+            for key, spec in STYLE_SPECS.items()
+        ]
     }
 
 
@@ -366,6 +470,8 @@ async def generate_copy(
     footer: str = Form(""),
     launch_text: str = Form("新品上市"),
     badge_text: str = Form("NEW!"),
+    style: str = Form("editorial"),
+    context: str = Form(""),
 ):
     """结合抠图与用户已填信息生成三组文案建议。"""
     path = _job_product_path(job_id)
@@ -379,15 +485,26 @@ async def generate_copy(
         result = local_suggestions(path)
         result["jobId"] = job_id
         return result
-    try:
-        result = analyze_with_ai(path, {
+    known: dict[str, Any] = {}
+    if context.strip():
+        try:
+            parsed_context = json.loads(context)
+        except json.JSONDecodeError as error:
+            raise HTTPException(400, "context 必须是 JSON 对象。") from error
+        if not isinstance(parsed_context, dict):
+            raise HTTPException(400, "context 必须是 JSON 对象。")
+        known = {str(key): value for key, value in parsed_context.items() if value not in (None, "")}
+    else:
+        known = {
             "英文商品名": name.strip(),
             "中文商品名": feature.strip(),
             "用户卖点": "；".join(str(point).strip() for point in points[:3] if str(point).strip()),
             "品牌口号": footer.strip(),
             "右上标签": launch_text.strip(),
             "徽章文字": badge_text.strip(),
-        })
+        }
+    try:
+        result = analyze_with_ai(path, known, style)
         result["jobId"] = job_id
         return result
     except Exception as error:
@@ -419,14 +536,18 @@ def refine_copy(payload: dict[str, Any]):
     支持两种入参：逐条填写的 `feedback`（推荐），或一句自然语言 `instruction`（兼容旧前端）。
     """
     job_id = str(payload.get("jobId", ""))
+    style = str(payload.get("style", "editorial"))
     current = payload.get("current")
-    instruction = str(payload.get("instruction", "")).strip() or _feedback_instruction(payload.get("feedback"))
+    instruction = (
+        str(payload.get("instruction", "")).strip()
+        or _feedback_instruction(payload.get("feedback"), style)
+    )
     if not isinstance(current, dict) or not instruction:
         raise HTTPException(400, "需要当前文案和修改意见。")
     if not ai_configured():
         raise HTTPException(503, "尚未配置视觉模型，暂时无法按意见修改。")
     try:
-        result = refine_with_ai(_job_product_path(job_id), current, instruction)
+        result = refine_with_ai(_job_product_path(job_id), current, instruction, style)
         result["jobId"] = job_id
         return result
     except HTTPException:
@@ -435,29 +556,26 @@ def refine_copy(payload: dict[str, Any]):
         raise HTTPException(502, f"AI文案修改失败：{error}") from error
 
 
-FEEDBACK_FIELD_LABELS = {
-    "subtitle": "中文商品名",
-    "footer": "品牌口号",
-    "launchText": "右上标签",
-    "badgeText": "徽章文字",
-}
-
-
-def _feedback_instruction(feedback: Any) -> str:
+def _feedback_instruction(feedback: Any, style: str = "editorial") -> str:
     """把逐条修改意见拼成一句明确的指令，只列出用户真正填了的条目。"""
     if not isinstance(feedback, dict):
         return ""
+    spec = STYLE_SPECS.get(style) or STYLE_SPECS["editorial"]
     lines: list[str] = []
-    for key, label in FEEDBACK_FIELD_LABELS.items():
+    for field in spec["fields"]:
+        key = field["key"]
+        if field["kind"] == "list":
+            values = feedback.get(key)
+            if not isinstance(values, (list, tuple)):
+                continue
+            for index, item in enumerate(values[: field.get("maxItems", 3)], start=1):
+                value = str(item or "").strip()[:80]
+                if value:
+                    lines.append(f"- {field['label']} {index}：{value}")
+            continue
         value = str(feedback.get(key, "") or "").strip()[:80]
         if value:
-            lines.append(f"- {label}：{value}")
-    points = feedback.get("sellingPoints")
-    if isinstance(points, (list, tuple)):
-        for index, item in enumerate(points[:3], start=1):
-            value = str(item or "").strip()[:80]
-            if value:
-                lines.append(f"- 卖点 {index}：{value}")
+            lines.append(f"- {field['label']}：{value}")
     if not lines:
         return ""
     return "请只修改下面这些条目，其余条目必须原样保留：\n" + "\n".join(lines)
@@ -478,6 +596,7 @@ async def generate(
     badge_text: str = Form("NEW!"),
     price: str = Form(""),
     style: str = Form("editorial"),
+    copy_json: str = Form("", alias="copy"),
 ):
     suffix = Path(image.filename or "product.png").suffix.lower()
     if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
@@ -499,30 +618,56 @@ async def generate(
         normalized_points = [str(point).strip()[:60] for point in parsed_points if str(point).strip()][:3]
         if not normalized_points:
             normalized_points = [point.strip() for point in (left_detail, right_detail) if point.strip()][:3]
+        copy_data: dict[str, Any] = {}
+        if copy_json.strip():
+            try:
+                parsed_copy = json.loads(copy_json)
+            except json.JSONDecodeError as error:
+                raise ValueError("copy 必须是 JSON 对象。") from error
+            if not isinstance(parsed_copy, dict):
+                raise ValueError("copy 必须是 JSON 对象。")
+            copy_data = {str(key): value for key, value in parsed_copy.items()}
+        else:
+            copy_data = {
+                "title": resolved_title,
+                "subtitle": resolved_subtitle,
+                "sellingPoints": normalized_points,
+                "footer": footer,
+                "launchText": launch_text,
+                "badgeText": badge_text,
+            }
         product_path = job_dir / "product_cutout.png"
         product = cutout(source, product_path)
         features = extract_product_features(product)
         mean = tuple(features["mean_rgb"])
-        background_path = job_dir / "learned_background.jpg"
-        build_style_background(background_path, adaptive_palette(mean), product)
-        document = create_document(
-            job_id=job_id,
-            product_url=_public(product_path),
-            background_url=_public(background_path),
-            product_size=product.size,
-            mean_rgb=mean,
-            title=resolved_title,
-            feature=resolved_subtitle,
-            price=price,
-            selling_points=normalized_points,
-            footer=footer,
-            launch_text=launch_text,
-            badge_text=badge_text,
-        )
-        preview_path = job_dir / "preview_learned.jpg"
-        _render(document).save(preview_path, quality=94)
-        document["previewUrl"] = _public(preview_path)
-        documents = [document]
+        try:
+            style_models = load_models_for(style)
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
+        documents = []
+        for index, style_model in enumerate(style_models):
+            paper = str(style_model.get("style", {}).get("paper", "#faf5ed"))
+            background_path = job_dir / f"learned_background_{index}.jpg"
+            build_style_background(
+                background_path, adaptive_palette(mean, paper), product, style_model,
+                style_key=style, variant_index=index,
+            )
+            document = create_document(
+                job_id=job_id,
+                product_url=_public(product_path),
+                background_url=_public(background_path),
+                product_size=product.size,
+                mean_rgb=mean,
+                copy=copy_data,
+                style=style,
+                model=style_model,
+                variant_index=index,
+                variant_count=len(style_models),
+            )
+            preview_path = job_dir / f"preview_learned_{index}.jpg"
+            _render(document).save(preview_path, quality=94)
+            document["previewUrl"] = _public(preview_path)
+            documents.append(document)
         (job_dir / "documents.json").write_text(
             json.dumps(documents, ensure_ascii=False, indent=2), encoding="utf-8"
         )
@@ -537,10 +682,13 @@ async def generate(
                 "badgeText": badge_text,
                 "style": style,
                 "price": price,
+                "copy": copy_data,
             },
             "productFeatures": features,
             "candidates": documents,
         }
+    except HTTPException:
+        raise
     except Exception as error:
         raise HTTPException(500, str(error)) from error
 

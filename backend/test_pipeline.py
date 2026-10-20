@@ -55,6 +55,43 @@ class PosterPipelineTests(unittest.TestCase):
         self.assertEqual(len(option["sellingPoints"]), 3)
         self.assertEqual(option["launchText"], "新品上市")
 
+    def test_style_models_are_registered_and_distinct(self):
+        from learned_layout import MODEL_FILES, load_model_for
+
+        self.assertIn("editorial", MODEL_FILES)
+        self.assertIn("minimal", MODEL_FILES)
+        editorial = load_model_for("editorial")
+        minimal = load_model_for("minimal")
+        self.assertEqual(editorial["style"]["name"], "bakery-editorial")
+        self.assertEqual(minimal["style"]["name"], "minimal")
+        self.assertNotEqual(editorial["regions"]["product"], minimal["regions"]["product"])
+        self.assertFalse(minimal["style"]["organicBackdrop"])
+        with self.assertRaises(ValueError):
+            load_model_for("does-not-exist")
+
+    def test_create_document_uses_style_regions(self):
+        from learned_layout import create_document
+
+        common = dict(
+            mean_rgb=(200, 120, 140),
+            product_size=(500, 700),
+        )
+        editorial = create_document(
+            "job-a", "/p.png", "/bg.jpg", **common,
+            copy={"title": "Test Product", "subtitle": "测试商品",
+                  "sellingPoints": ["卖点一", "卖点二"], "footer": "品牌口号"},
+            style="editorial",
+        )
+        minimal = create_document(
+            "job-b", "/p.png", "/bg.jpg", **common,
+            copy={"title": "Test Product", "subtitle": "测试商品",
+                  "sellingPoints": ["卖点一", "卖点二"], "footer": "品牌口号"},
+            style="minimal",
+        )
+        product_a = next(item for item in editorial["elements"] if item["role"] == "product")
+        product_b = next(item for item in minimal["elements"] if item["role"] == "product")
+        self.assertNotEqual((product_a["x"], product_a["y"]), (product_b["x"], product_b["y"]))
+
     def test_transparent_input_and_layout(self):
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "product.png"
@@ -93,9 +130,11 @@ class PosterPipelineTests(unittest.TestCase):
             background_url="/generated/test/background.jpg",
             product_size=(600, 500),
             mean_rgb=(215, 95, 110),
-            title="Strawberry Danish",
-            feature="草莓奶油丹麦",
-            selling_points=["精选新鲜草莓", "层层起酥", "奶油香滑"],
+            copy={
+                "title": "Strawberry Danish",
+                "subtitle": "草莓奶油丹麦",
+                "sellingPoints": ["精选新鲜草莓", "层层起酥", "奶油香滑"],
+            },
         )
         self.assertEqual(document["templateId"], "learned-bakery-editorial-v1")
         self.assertEqual(document["canvas"], {

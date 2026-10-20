@@ -6,31 +6,69 @@ import base64
 import json
 import mimetypes
 import os
+import re
 from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageOps, ImageStat
 
+from style_specs import get_style_spec
 
-SYSTEM_PROMPT = """你是一名谨慎的电商视觉文案助手。先识别图片中的主要商品，再根据商品类别、可见颜色、
+def _field_lines(style: str) -> str:
+    spec = get_style_spec(style)
+    lines = []
+    for field in spec["fields"]:
+        if not field.get("generated", True):
+            continue
+        hint = field.get("hint") or f'{field.get("maxChars", 30)} 字以内'
+        if field["kind"] == "list":
+            lines.append(
+                f'- {field["key"]}（{field["label"]}）：1 到 {field.get("maxItems", 3)} 条，每条{hint}'
+            )
+        else:
+            lines.append(f'- {field["key"]}（{field["label"]}）：{hint}')
+    return "\n".join(lines)
+
+
+def _json_shape(style: str) -> str:
+    spec = get_style_spec(style)
+    parts = []
+    for field in spec["fields"]:
+        if not field.get("generated", True):
+            continue
+        if field["kind"] == "list":
+            parts.append(f'"{field["key"]}":["条目一","条目二"]')
+        else:
+            parts.append(f'"{field["key"]}":"..."')
+    return "{" + ",".join(parts) + "}"
+
+
+def _system_prompt(style: str) -> str:
+    shape = _json_shape(style)
+    return f"""你是一名谨慎的电商视觉文案助手。先识别图片中的主要商品，再根据商品类别、可见颜色、
 造型和合理使用场景，生成3组与该商品直接相关的海报文案。卖点和口号必须让人能联想到识别出的商品，
 避免“质感新选”“今日上新”等与任何商品都适用的空泛文案。只描述图片中能够确认的信息；不得虚构
-品牌、价格、容量、材质、保温时长、医疗效果或其他无法从图片确认的参数。如果用户提供了中文商品名，
-subtitle 必须保留或轻微规范该中文名称。不要生成或返回英文商品名、title 或 english_name；英文名由独立步骤生成。
-必须仅返回JSON，不要Markdown。格式：
-{"category":"具体商品类别","color":"主要颜色","visible_features":["可见特征1","可见特征2"],
-"scene":["场景1","场景2"],"confidence":0.0,"warning":"需要人工确认的内容","copywriting":[
-{"subtitle":"4至12字中文商品名，只使用中文",
-"sellingPoints":["10至28字卖点1","10至28字卖点2","可选卖点3"],
-"footer":"8至24字底部品牌口号","launchText":"2至6字右上标签","badgeText":"2至8字符徽章文字"},
-{"subtitle":"...","sellingPoints":["..."],"footer":"...","launchText":"...","badgeText":"..."},
-{"subtitle":"...","sellingPoints":["..."],"footer":"...","launchText":"...","badgeText":"..."}]}"""
+品牌、价格、容量、材质、保温时长、医疗效果或其他无法从图片确认的参数。
+如果用户已经提供了某些字段，必须优先沿用或轻微规范，不要改写成无关内容。
 
-REFINE_PROMPT = """你是一名谨慎的商品海报文案编辑。根据商品图片、当前文案和用户修改意见，只修改意见涉及的字段，
-其余字段必须原样保留。不得虚构品牌、价格、材质、容量、功效或参数。不要生成或返回英文商品名、title 或 english_name；
-中文商品名只使用中文，卖点最多3条。仅返回JSON，不要Markdown。格式：
-{"copywriting":[{"subtitle":"中文商品名","sellingPoints":["卖点"],
-"footer":"品牌口号","launchText":"新品上市","badgeText":"NEW!"}],"warning":"需要人工确认的内容"}"""
+本风格需要的字段：
+{_field_lines(style)}
+
+必须仅返回JSON，不要Markdown。格式：
+{{"category":"具体商品类别","color":"主要颜色","visible_features":["可见特征1"],"scene":["场景1"],
+"confidence":0.0,"warning":"需要人工确认的内容","copywriting":[{shape},{shape},{shape}]}}"""
+
+
+def _refine_prompt(style: str) -> str:
+    shape = _json_shape(style)
+    return f"""你是一名谨慎的商品海报文案编辑。根据商品图片、当前文案和用户修改意见，只修改意见涉及的字段，
+其余字段必须原样保留。不得虚构品牌、价格、材质、容量、功效或参数。
+
+本风格字段：
+{_field_lines(style)}
+
+仅返回JSON，不要Markdown。格式：
+{{"copywriting":[{shape}],"warning":"需要人工确认的内容"}}"""
 
 TRANSLATE_PROMPT = """你是商品名称翻译助手。将用户输入的中文商品名翻译为自然、简洁、适合商品海报标题的英文。
 不要增加原文没有的品牌、口味、材质、功效或规格。只返回JSON，不要Markdown。格式：
@@ -58,26 +96,49 @@ def _extract_json(text: str) -> dict[str, Any]:
     return json.loads(text[start:end + 1])
 
 
-def _validate(payload: dict[str, Any]) -> dict[str, Any]:
+ALIASES = {
+    "subtitle": ["subtitle", "chinese_name"],
+    "sellingPoints": ["sellingPoints", "selling_points"],
+    "launchText": ["launchText", "launch_text"],
+    "badgeText": ["badgeText", "badge_text"],
+}
+
+
+def _validate(payload: dict[str, Any], style: str = "editorial") -> dict[str, Any]:
+    spec = get_style_spec(style)
     options = payload.get("copywriting", payload.get("variants"))
     if not isinstance(options, list) or not options:
         raise ValueError("AI结果缺少copywriting数组。")
     cleaned = []
     for item in options[:3]:
-        if isinstance(item, dict):
-            subtitle = item.get("subtitle", item.get("chinese_name", ""))
-            selling_points = item.get("sellingPoints", item.get("selling_points", []))
-            if not isinstance(selling_points, list):
-                selling_points = []
-            option = {
-                "subtitle": str(subtitle).strip()[:20],
-                "sellingPoints": [str(point)[:60] for point in selling_points[:3] if str(point).strip()],
-                "footer": str(item.get("footer", ""))[:40],
-                "launchText": str(item.get("launchText", item.get("launch_text", "")))[:12],
-                "badgeText": str(item.get("badgeText", item.get("badge_text", "")))[:12],
-            }
-            if option["subtitle"] or option["sellingPoints"] or option["footer"]:
-                cleaned.append(option)
+        if not isinstance(item, dict):
+            continue
+        option: dict[str, Any] = {}
+        for field in spec["fields"]:
+            if not field.get("generated", True):
+                continue
+            key = field["key"]
+            value = next(
+                (item.get(alias) for alias in ALIASES.get(key, [key]) if item.get(alias) is not None),
+                None,
+            )
+            if field["kind"] == "list":
+                if isinstance(value, str):
+                    value = re.split(r"[，,、;；\n]+", value)
+                if not isinstance(value, list):
+                    value = []
+                option[key] = [
+                    str(entry).strip()[: field.get("maxChars", 30)]
+                    for entry in value[: field.get("maxItems", 3)]
+                    if str(entry).strip()
+                ]
+            else:
+                text_value = str(value or "").strip()[: field.get("maxChars", 30)]
+                if field.get("stripPunctuation"):
+                    text_value = re.sub(r"[，,、；;。.!！?？]", "", text_value).strip()
+                option[key] = text_value
+        if any(option.values()):
+            cleaned.append(option)
     if not cleaned:
         raise ValueError("AI没有生成可用文案。")
     payload["copywriting"] = cleaned
@@ -90,7 +151,7 @@ def _validate(payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def _call_ai(path: Path, system_prompt: str, user_text: str) -> dict[str, Any]:
+def _call_ai(path: Path, system_prompt: str, user_text: str, style: str = "editorial") -> dict[str, Any]:
     import requests
 
     endpoint = os.environ["AI_API_URL"].strip().rstrip("/")
@@ -126,7 +187,7 @@ def _call_ai(path: Path, system_prompt: str, user_text: str) -> dict[str, Any]:
     text = data["choices"][0]["message"]["content"]
     if isinstance(text, list):
         text = "".join(str(item.get("text", "")) for item in text if isinstance(item, dict))
-    return _validate(_extract_json(text))
+    return _validate(_extract_json(text), style)
 
 
 def translate_with_ai(chinese_name: str) -> str:
@@ -167,25 +228,28 @@ def translate_with_ai(chinese_name: str) -> str:
     return translation
 
 
-def analyze_with_ai(path: Path, known: dict[str, Any] | None = None) -> dict[str, Any]:
+def analyze_with_ai(path: Path, known: dict[str, Any] | None = None,
+                    style: str = "editorial") -> dict[str, Any]:
     """识别商品并生成适配当前学习版式的三组可编辑文案。"""
     facts = known or {}
     lines = [f"- {key}：{value}" for key, value in facts.items() if value]
     known_text = "\n".join(lines) if lines else "- 用户尚未填写商品资料"
     return _call_ai(
         path,
-        SYSTEM_PROMPT,
+        _system_prompt(style),
         "识别商品并生成三组真实、克制的宣传文案。\n【用户已知信息】\n" + known_text,
+        style,
     )
 
 
-def refine_with_ai(path: Path, current: dict[str, Any], instruction: str) -> dict[str, Any]:
+def refine_with_ai(path: Path, current: dict[str, Any], instruction: str,
+                   style: str = "editorial") -> dict[str, Any]:
     """根据一句自然语言意见修改一组文案，未提及字段保持原样。"""
     user_text = (
         "【当前文案】\n" + json.dumps(current, ensure_ascii=False)
         + "\n【修改意见】\n" + instruction.strip()
     )
-    return _call_ai(path, REFINE_PROMPT, user_text)
+    return _call_ai(path, _refine_prompt(style), user_text, style)
 
 
 def local_suggestions(path: Path) -> dict[str, Any]:

@@ -62,14 +62,52 @@ $env:AI_MODEL="qwen3-vl-plus"
 
 当前训练集位于 `training/reference_posters/`，区域与配色标注位于 `training/layout_annotations.json`。四张样本不足以可靠微调扩散模型，因此当前采用可解释的小样本统计模型：训练脚本学习各版式区域的归一化坐标和配色角色，输出 `models/bakery_editorial_layout.json`。
 
-重新训练：
+### 重新训练现有版式
 
 ```powershell
 cd backend
 py train_layout_model.py
 ```
 
-增加参考海报时，将图片放入 `training/reference_posters/`，并在标注文件中增加同名样本及 9 个区域。重新运行训练脚本即可更新模型，无需修改生成代码。
+增加参考海报时，将图片放入 `training/reference_posters/`，并在标注文件中增加同名样本及 9 个区域。
+重新运行训练脚本即可更新模型，无需修改生成代码。
+
+### 多版式（风格）
+
+风格到模型文件的映射集中在 `learned_layout.STYLE_MODELS`（一个风格可以有多套版式）：
+
+```text
+editorial -> [models/bakery_editorial_layout.json]        （4 张参考海报训练）
+minimal   -> [models/minimal_layout.json]                 （手工版式占位）
+style2    -> [models/style2_layout_1.json, ..._4.json]    （每张参考图一套版式）
+```
+
+新增一个版式的最小流程：
+
+1. 把参考海报放进 `training/reference_posters/`，在
+   `training/layout_annotations_<style>.json` 里标注该风格需要的区域：
+   `heroTitle / cnTitle / product / launch / badge / footer / leftCallout / leftDetail / rightDetail`，
+   或风格自定义的 `name / point1..3 / slogan / intro`，坐标为归一化的 `[x, y, 宽, 高]`。
+2. 训练并输出模型：
+
+   ```powershell
+   py train_layout_model.py --input training/layout_annotations_xxx.json `
+     --output models/xxx_layout.json --style-name xxx --paper "#faf5ed"
+   ```
+
+   若每张参考图的排版都不同，加 `--split`，会为每张图各训练一套版式：
+
+   ```powershell
+   py train_layout_model.py --input training/layout_annotations_style2.json `
+     --output models/style2_layout.json --style-name style2 --split
+   ```
+
+   标注文件里可选的 `style` 字段可控制 `organicBackdrop`、`footerScallop`、
+   `oversizedHeadline`、`badgeShape`、`productDoodle`。
+3. 在 `learned_layout.STYLE_MODELS` 登记 `"xxx": ["xxx_layout_1.json", ...]`。
+4. 在前端 `src/composables/useStudio.ts` 的 `styles` 数组把该项设为 `available: true`。
+
+接口层会校验风格名，未知风格返回 400，不会静默回退到默认版式。
 
 ## SmartMerch 集成
 

@@ -83,7 +83,9 @@
 
 `POST /api/generate`，请求类型为 `multipart/form-data`。
 
-接口使用 `models/bakery_editorial_layout.json` 中由 4 张参考海报训练得到的版式先验，输出 1080×1440 的可编辑海报。旧版 `templates/*.json` 不再参与主生成链路。
+接口按 `style` 选择 `models/` 下的版式模型，输出 1080×1440 的可编辑海报。
+当前可用：`editorial`（`bakery_editorial_layout.json`，由 4 张参考海报训练）与
+`minimal`（`minimal_layout.json`，手工版式占位）。旧版 `templates/*.json` 不再参与主生成链路。
 
 | SmartMerch 字段 | 类型 | 必填 | 后端用途 |
 | --- | --- | --- | --- |
@@ -95,10 +97,13 @@
 | `launch_text` | string | 否 | 右上标签，默认“新品上市” |
 | `badge_text` | string | 否 | 徽章文字，默认“NEW!” |
 | `price` | string | 否 | 价格文字；为空时不添加价格图层 |
+| `style` | string | 否 | 版式风格：`editorial`（默认）或 `minimal`；未知值返回 400 |
 
 为兼容旧页面，接口仍接受 `title` 和 `subtitle`；它们的优先级高于 `name` 和 `feature`。
 
-返回的 `candidates` 当前只包含一套学习版式方案，附带 `layoutModel`、`palette`、可编辑 `elements` 和预览图地址。生成链路不再计算或返回质量评分；独立的 `/api/evaluate` 仍保留供后续实验使用。
+返回的 `candidates` 会包含该风格下的**全部版式候选**（例如风格二有 4 张参考图 → 4 套版式），
+每套附带 `layoutModel`、`palette`、可编辑 `elements` 和预览图地址。生成链路不再计算或返回质量评分；
+独立的 `/api/evaluate` 仍保留供后续实验使用。
 
 ## 4. 其他接口
 

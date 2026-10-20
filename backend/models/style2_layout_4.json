@@ -1,0 +1,71 @@
+{
+  "modelType": "few-shot-layout-prior",
+  "modelVersion": 1,
+  "trainedSamples": 1,
+  "canvas": [
+    1080,
+    1440
+  ],
+  "regions": {
+    "intro": [
+      0.5903,
+      0.7855,
+      0.3931,
+      0.1774
+    ],
+    "name": [
+      0.026,
+      0.4264,
+      0.9483,
+      0.1421
+    ],
+    "point1": [
+      0.034,
+      0.112,
+      0.3425,
+      0.0749
+    ],
+    "point2": [
+      0.034,
+      0.218,
+      0.3425,
+      0.0749
+    ],
+    "point3": [
+      0.034,
+      0.3239,
+      0.3425,
+      0.0749
+    ],
+    "product": [
+      0.1489,
+      0.0026,
+      0.8511,
+      0.6555
+    ],
+    "slogan": [
+      0.0202,
+      0.8975,
+      0.3356,
+      0.0612
+    ]
+  },
+  "paletteExamples": [
+    {
+      "accent": "#989898",
+      "soft": "#e2e2e2",
+      "paper": "#f2f2f2"
+    }
+  ],
+  "style": {
+    "name": "style2",
+    "paper": "#ececec",
+    "outerPadding": 54,
+    "organicBackdrop": false,
+    "footerScallop": false,
+    "oversizedHeadline": false,
+    "badgeShape": "star",
+    "productDoodle": false,
+    "productShadow": true
+  }
+}
