@@ -10,7 +10,7 @@ from __future__ import annotations
 
 STYLE_SPECS: dict[str, dict] = {
     "editorial": {
-        "label": "杂志编辑",
+        "label": "杂志",
         "templateId": "learned-bakery-editorial-v1",
         "productNameField": "title",
         "fields": [
@@ -53,16 +53,18 @@ STYLE_SPECS: dict[str, dict] = {
                 "key": "sellingPoints", "label": "卖点", "kind": "list",
                 "role": "sellingPoint",
                 "maxItems": 3, "color": "dark", "weight": 700, "zIndex": 4,
-                "maxChars": 28, "hint": "10 至 28 字",
+                "singleLine": True, "minFont": 16,
+                "maxChars": 10, "hint": "4 至 10 字，使用完整短句，不换行",
                 "layouts": {
-                    1: [["leftDetail", 32, 12, 4]],
-                    2: [["leftDetail", 30, 9, 4], ["rightDetail", 30, 5, 4]],
+                    1: [["leftDetail", 32, 10, 1]],
+                    2: [["leftDetail", 30, 10, 1], ["rightDetail", 28, 10, 1]],
                     3: [
-                        ["leftCallout", 30, 9, 4],
-                        ["leftDetail", 30, 9, 4],
-                        ["rightDetail", 30, 5, 4],
+                        ["leftCallout", 30, 10, 1],
+                        ["leftDetail", 30, 10, 1],
+                        ["rightDetail", 28, 10, 1],
                     ],
                 },
+                "align": "center", "verticalAlign": "middle",
             },
         ],
         "defaults": {
@@ -74,7 +76,7 @@ STYLE_SPECS: dict[str, dict] = {
         },
     },
     "style2": {
-        "label": "风格二",
+        "label": "简约",
         "templateId": "learned-style2-v1",
         "variantOverrides": {
             # 版式 1：主标题三行大字铺满标题框、压在商品下层；口号/介绍加半透明浮窗。
@@ -163,15 +165,53 @@ STYLE_SPECS: dict[str, dict] = {
             "intro": "在这里补充一段商品介绍。",
         },
     },
-}
-
-# 极简版式沿用杂志编辑的条目结构，只是版式区域与装饰不同。
-STYLE_SPECS["minimal"] = {
-    "label": "极简",
-    "templateId": "learned-minimal-v1",
-    "productNameField": "title",
-    "fields": STYLE_SPECS["editorial"]["fields"],
-    "defaults": STYLE_SPECS["editorial"]["defaults"],
+    "retro": {
+        "label": "复古",
+        "templateId": "retro-food-poster-v1",
+        "productNameField": "subtitle",
+        "fields": [
+            {
+                "key": "subtitle", "id": "cn-title", "role": "title",
+                "label": "中文商品名", "kind": "text", "regions": ["cnTitle"],
+                "color": "dark", "font": [44, 28], "weight": 700, "zIndex": 4,
+                "align": "center", "verticalAlign": "middle", "maxChars": 12,
+                "hint": "4 至 12 字中文商品名，只使用中文",
+            },
+            {
+                "key": "title", "id": "hero-title", "role": "heroTitle",
+                "label": "英文主标题", "kind": "text", "regions": ["heroTitle"],
+                "color": "paper", "font": [116, 50], "weight": 900, "zIndex": 4,
+                "align": "center", "verticalAlign": "middle",
+                "generated": False, "maxChars": 36, "autoLines": 2,
+            },
+            {
+                "key": "slogan", "id": "slogan", "role": "slogan",
+                "label": "中文口号", "kind": "text", "regions": ["slogan"],
+                "color": "accent", "font": [50, 30], "weight": 700, "zIndex": 4,
+                "align": "center", "verticalAlign": "middle", "maxChars": 18, "autoLines": 2,
+                "hint": "8 至 18 字，突出味道、质感或使用感受",
+            },
+            {
+                "key": "feature", "id": "feature", "role": "label",
+                "label": "核心卖点", "kind": "text", "regions": ["feature"],
+                "color": "dark", "font": [46, 30], "weight": 800, "zIndex": 5,
+                "align": "center", "verticalAlign": "middle",
+                "panel": {"fill": "paper", "opacity": 0.96, "radius": 30, "pad": [20, 10, 20, 10]},
+                "maxChars": 18, "hint": "8 至 18 字，只写一条最重要、最有辨识度的卖点",
+            },
+            {
+                "key": "footer", "id": "footer", "role": "footer",
+                "label": "底部说明", "kind": "text", "regions": ["footer"],
+                "color": "dark", "font": [28, 18], "weight": 700, "zIndex": 4,
+                "align": "center", "verticalAlign": "middle", "maxChars": 48, "autoLines": 2,
+                "hint": "12 至 48 字，可填写品牌说明或品质宣言",
+            },
+        ],
+        "defaults": {
+            "subtitle": "商品名称", "title": "NEW ARRIVAL",
+            "slogan": "好味层层展开", "feature": "真材实料、风味浓郁",            "footer": "QUALITY INGREDIENTS · MADE WITH CARE",
+        },
+    },
 }
 
 

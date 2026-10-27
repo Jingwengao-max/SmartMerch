@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useStudio } from '@/composables/useStudio'
 import CopyVariantCard from './CopyVariantCard.vue'
 
@@ -30,6 +30,13 @@ const {
 } = useStudio()
 
 const fileInput = ref<HTMLInputElement | null>(null)
+const orderedFields = computed(() => {
+  const priority: Record<string, number> = { subtitle: 0, title: 1 }
+  return state.fields
+    .map((field, index) => ({ field, index }))
+    .sort((a, b) => (priority[a.field.key] ?? 2) - (priority[b.field.key] ?? 2) || a.index - b.index)
+    .map(({ field }) => field)
+})
 function openPicker() {
   fileInput.value?.click()
 }
@@ -139,11 +146,11 @@ function onPick(e: Event) {
         <div class="space-y-5">
           <p class="text-sm text-ink-soft">也可以直接修改下面的内容：</p>
           <p v-if="!state.fields.length" class="text-xs text-ink-faint">正在加载当前风格的文案条目…</p>
-          <label v-for="field in state.fields" :key="field.key" class="block">
+          <label v-for="field in orderedFields" :key="field.key" class="block">
             <div class="flex items-center justify-between gap-3">
               <p class="font-display text-lg leading-snug">{{ field.label }}</p>
               <button
-                v-if="field.key === 'title'"
+                v-if="field.key === 'title' && state.fields.some((item) => item.key === 'subtitle')"
                 type="button"
                 class="text-xs text-sage disabled:opacity-40"
                 :disabled="state.translating || !textValue('subtitle').trim()"

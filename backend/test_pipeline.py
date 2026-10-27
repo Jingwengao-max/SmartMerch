@@ -53,45 +53,53 @@ class PosterPipelineTests(unittest.TestCase):
         self.assertNotIn("title", option)
         self.assertEqual(option["subtitle"], "草莓奶油丹麦")
         self.assertEqual(len(option["sellingPoints"]), 3)
+        self.assertTrue(all(len(point) <= 10 for point in option["sellingPoints"]))
         self.assertEqual(option["launchText"], "新品上市")
 
     def test_style_models_are_registered_and_distinct(self):
         from learned_layout import MODEL_FILES, load_model_for
 
         self.assertIn("editorial", MODEL_FILES)
-        self.assertIn("minimal", MODEL_FILES)
+        self.assertIn("style2", MODEL_FILES)
+        self.assertIn("retro", MODEL_FILES)
+        self.assertNotIn("minimal", MODEL_FILES)
         editorial = load_model_for("editorial")
-        minimal = load_model_for("minimal")
+        retro = load_model_for("retro")
         self.assertEqual(editorial["style"]["name"], "bakery-editorial")
-        self.assertEqual(minimal["style"]["name"], "minimal")
-        self.assertNotEqual(editorial["regions"]["product"], minimal["regions"]["product"])
-        self.assertFalse(minimal["style"]["organicBackdrop"])
+        self.assertEqual(retro["style"]["name"], "retro")
+        self.assertNotEqual(editorial["regions"]["product"], retro["regions"]["product"])
+        with self.assertRaises(ValueError):
+            load_model_for("minimal")
         with self.assertRaises(ValueError):
             load_model_for("does-not-exist")
-
     def test_create_document_uses_style_regions(self):
         from learned_layout import create_document
 
-        common = dict(
-            mean_rgb=(200, 120, 140),
-            product_size=(500, 700),
-        )
+        common = dict(mean_rgb=(200, 120, 140), product_size=(500, 700))
         editorial = create_document(
             "job-a", "/p.png", "/bg.jpg", **common,
             copy={"title": "Test Product", "subtitle": "测试商品",
                   "sellingPoints": ["卖点一", "卖点二"], "footer": "品牌口号"},
             style="editorial",
         )
-        minimal = create_document(
+        retro = create_document(
             "job-b", "/p.png", "/bg.jpg", **common,
-            copy={"title": "Test Product", "subtitle": "测试商品",
-                  "sellingPoints": ["卖点一", "卖点二"], "footer": "品牌口号"},
-            style="minimal",
+            copy={"title": "TEST PRODUCT", "subtitle": "测试商品",
+                  "slogan": "简洁口号", "feature": "清晰卖点"},
+            style="retro",
         )
         product_a = next(item for item in editorial["elements"] if item["role"] == "product")
-        product_b = next(item for item in minimal["elements"] if item["role"] == "product")
+        product_b = next(item for item in retro["elements"] if item["role"] == "product")
         self.assertNotEqual((product_a["x"], product_a["y"]), (product_b["x"], product_b["y"]))
 
+        magazine = create_document(
+            "job-c", "/p.png", "/bg.jpg", **common,
+            copy={"title": "TEST", "subtitle": "测试商品",
+                  "sellingPoints": ["这是一条超过十个字的卖点文案"]}, style="editorial",
+        )
+        magazine_point = next(item for item in magazine["elements"] if item.get("role") == "sellingPoint")
+        self.assertLessEqual(len(magazine_point["content"]), 10)
+        self.assertNotIn("\n", magazine_point["content"])
     def test_transparent_input_and_layout(self):
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "product.png"
@@ -147,6 +155,63 @@ class PosterPipelineTests(unittest.TestCase):
         self.assertNotIn("footer-values", {item["id"] for item in document["elements"]})
         self.assertIn("accent", adaptive_palette((215, 95, 110)))
 
+    def test_retro_style_has_adaptive_palette_and_copy(self):
+        from learned_layout import build_style_background, create_document, load_model_for
+
+        document = create_document(
+            "retro-job", "/product.png", "/background.jpg",
+            product_size=(600, 500), mean_rgb=(30, 150, 220),
+            copy={
+                "subtitle": "开心果可颂", "title": "A CROISSANT",
+                "slogan": "层层起酥 奶香浓郁", "feature": "无添加、真材实料",
+                "sellingPoints": ["金黄酥脆", "黄油醇香", "轻盈多层"],
+                "year": "2026", "badgeText": "VOL.09",
+                "footer": "QUALITY INGREDIENTS · MADE WITH CARE",
+            },
+            style="retro",
+        )
+        self.assertEqual(document["templateId"], "retro-food-poster-v1")
+        self.assertNotEqual(document["palette"]["accent"], "#c64c22")
+        warm_document = create_document(
+            "retro-warm", "/product.png", "/background.jpg",
+            product_size=(600, 500), mean_rgb=(220, 110, 35),
+            copy={"subtitle": "暖色商品", "title": "WARM PRODUCT"}, style="retro",
+        )
+        self.assertNotEqual(document["palette"]["accent"], warm_document["palette"]["accent"])
+        self.assertEqual(document["productName"], "开心果可颂")
+        self.assertTrue(any(item.get("id") == "feature-panel" for item in document["elements"]))
+        year = next(item for item in document["elements"] if item.get("id") == "year")
+        self.assertEqual(year["content"], "2026")
+        self.assertFalse(any(item.get("id") == "issue" for item in document["elements"]))
+        self.assertFalse(any(item.get("role") == "sellingPoint" for item in document["elements"]))
+        from style_specs import STYLE_SPECS
+        self.assertEqual(
+            [field["key"] for field in STYLE_SPECS["retro"]["fields"]],
+            ["subtitle", "title", "slogan", "feature", "footer"],
+        )
+        product_layer = next(item for item in document["elements"] if item.get("role") == "product")
+        product_box = (product_layer["x"], product_layer["y"],
+                       product_layer["x"] + product_layer["width"],
+                       product_layer["y"] + product_layer["height"])
+        for item in (layer for layer in document["elements"] if layer.get("type") == "text"):
+            text_box = (item["x"], item["y"], item["x"] + item["width"], item["y"] + item["height"])
+            overlaps = not (
+                text_box[2] <= product_box[0] or text_box[0] >= product_box[2]
+                or text_box[3] <= product_box[1] or text_box[1] >= product_box[3]
+            )
+            self.assertFalse(overlaps, f"文案 {item['id']} 不应覆盖商品")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            product = Image.new("RGBA", (320, 180), (0, 0, 0, 0))
+            product.paste((220, 140, 60, 255), (30, 30, 290, 150))
+            background = Path(temporary) / "retro.jpg"
+            build_style_background(
+                background, document["palette"], product, load_model_for("retro"), style_key="retro",
+            )
+            self.assertTrue(background.is_file())
+            rendered = Image.open(background)
+            self.assertEqual(rendered.size, (1080, 1440))
+            self.assertLess(rendered.getpixel((80, 100))[0], 160)
     def test_quality_evaluator_detects_overlap(self):
         document = {
             "canvas": {"width": 1080, "height": 1350},

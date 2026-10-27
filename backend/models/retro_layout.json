@@ -1,0 +1,72 @@
+{
+  "modelType": "hand-authored-layout",
+  "modelVersion": 1,
+  "trainedSamples": 0,
+  "canvas": [
+    1080,
+    1440
+  ],
+  "regions": {
+    "cnTitle": [
+      0.12,
+      0.018,
+      0.76,
+      0.034
+    ],
+    "heroTitle": [
+      0.075,
+      0.065,
+      0.85,
+      0.11
+    ],
+    "year": [
+      0.76,
+      0.19,
+      0.16,
+      0.05
+    ],
+    "slogan": [
+      0.22,
+      0.215,
+      0.58,
+      0.065
+    ],
+    "product": [
+      0.13,
+      0.285,
+      0.74,
+      0.375
+    ],
+    "feature": [
+      0.16,
+      0.77,
+      0.6,
+      0.065
+    ],
+    "footer": [
+      0.12,
+      0.92,
+      0.76,
+      0.05
+    ]
+  },
+  "paletteExamples": [
+    {
+      "paper": "#f7f0df",
+      "accent": "#c64c22",
+      "soft": "#ef6b24",
+      "dark": "#6f2416"
+    }
+  ],
+  "style": {
+    "name": "retro",
+    "paper": "#f7f0df",
+    "outerPadding": 58,
+    "organicBackdrop": false,
+    "footerScallop": false,
+    "oversizedHeadline": true,
+    "badgeShape": "circle",
+    "productDoodle": false,
+    "productShadow": true
+  }
+}

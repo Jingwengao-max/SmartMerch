@@ -31,6 +31,7 @@ from learned_layout import (
     load_model,
     load_model_for,
     load_models_for,
+    retro_palette,
 )
 from main import cutout
 from poster_design_adapter import normalize_template
@@ -649,7 +650,7 @@ async def generate(
             paper = str(style_model.get("style", {}).get("paper", "#faf5ed"))
             background_path = job_dir / f"learned_background_{index}.jpg"
             build_style_background(
-                background_path, adaptive_palette(mean, paper), product, style_model,
+                background_path, (retro_palette(mean) if style == "retro" else adaptive_palette(mean, paper)), product, style_model,
                 style_key=style, variant_index=index,
             )
             document = create_document(
