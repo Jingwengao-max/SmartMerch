@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { assetUrl, renderPoster, type PosterDocument, type PosterElement } from '@/services/posterApi'
+import { FONT_OPTIONS, fontStack, resolveFontId } from '@/data/fonts'
 
 const props = defineProps<{ document: PosterDocument }>()
 const emit = defineEmits<{ 'update:document': [value: PosterDocument] }>()
@@ -14,6 +15,7 @@ const exporting = ref(false)
 const error = ref('')
 const scale = computed(() => Math.min(0.4, 540 / working.value.canvas.height))
 const selected = computed(() => working.value.elements.find((item) => item.id === selectedId.value) ?? null)
+const selectedFontId = computed(() => resolveFontId(selected.value?.fontFamily))
 const orderedLayers = computed(() => [...working.value.elements].sort((a, b) => b.zIndex - a.zIndex))
 
 watch(() => props.document, (value) => {
@@ -198,9 +200,7 @@ async function download() {
               :style="{
                 fontSize: `${(element.fontSize || 40) * scale}px`,
                 fontWeight: element.fontWeight || 400,
-                fontFamily: element.fontFamily === 'hei'
-                  ? 'SimHei, Microsoft YaHei, sans-serif'
-                  : element.fontFamily || 'LXGW WenKai, STKaiti, serif',
+                fontFamily: fontStack(element.fontFamily),
                 color: element.color || '#222',
                 textAlign: element.textAlign || 'left',
                 letterSpacing: element.letterSpacing ? `${element.letterSpacing * scale}px` : undefined,
@@ -234,6 +234,18 @@ async function download() {
         </label>
         <label v-if="selected.type === 'text'" class="mb-3 block text-xs text-ink-soft">
           字号<input class="field-input mt-1" type="number" :value="selected.fontSize" @change="editField('fontSize', ($event.target as HTMLInputElement).value)" />
+        </label>
+        <label v-if="selected.type === 'text'" class="mb-3 block text-xs text-ink-soft">
+          字体
+          <select
+            class="field-input mt-1"
+            :value="selectedFontId"
+            @change="editField('fontFamily', ($event.target as HTMLSelectElement).value)"
+          >
+            <option v-for="font in FONT_OPTIONS" :key="font.id" :value="font.id">
+              {{ font.label }} · {{ font.description }}
+            </option>
+          </select>
         </label>
         <label v-if="selected.type === 'text'" class="mb-3 block text-xs text-ink-soft">
           颜色<input class="mt-1 h-9 w-full" type="color" :value="selected.color?.slice(0, 7) || '#222222'" @change="editField('color', ($event.target as HTMLInputElement).value)" />

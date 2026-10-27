@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 
 from PIL import Image
 
+from font_catalog import FONT_CATALOG, public_font_catalog, resolve_font_path
 from layout_engine import extract_product_features, load_templates, make_candidate
 from main import cutout, render
 from poster_design_adapter import normalize_template
@@ -14,6 +15,21 @@ from quality_evaluator import evaluate_document
 
 
 class PosterPipelineTests(unittest.TestCase):
+    def test_bundled_font_catalog_is_renderable_and_portable(self):
+        from layout_engine import load_font
+
+        catalog = public_font_catalog()
+        self.assertEqual(len(catalog), len(FONT_CATALOG))
+        self.assertEqual(len({item["id"] for item in catalog}), len(catalog))
+        for font_id in FONT_CATALOG:
+            path = resolve_font_path(font_id, 700)
+            self.assertTrue(path.is_file(), path)
+            font = load_font(32, 700, font_id)
+            left, top, right, bottom = font.getbbox("海报")
+            self.assertGreater(right - left, 0)
+            self.assertGreater(bottom - top, 0)
+        self.assertIn("noto-sans", resolve_font_path("hei").name)
+
     def test_translation_reuses_unified_ai_configuration(self):
         from ai_copywriter import translate_with_ai
 
