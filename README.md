@@ -41,6 +41,7 @@ AI 能力是可选的。没有配置 API 时，抠图、手工填写、海报生
 - Vue 3、TypeScript、Vite、Tailwind CSS；
 - 自研分图层海报编辑器；
 - LXGW WenKai 与 Noto Sans SC 字体。
+- 开源海报字体库：思源宋体、站酷小薇、站酷快乐体、站酷庆科黄油体、马善政毛笔楷书、龙藏体。
 
 ### 后端
 
@@ -87,9 +88,9 @@ SmartMerch/
 - Windows 10/11；
 - Git；
 - Node.js 20 或更高版本；
-- Python 3.11 或 3.12。
+- Python 3.11 至 3.14。
 
-Python 3.14 可能与部分 `rembg/pymatting/numba` 版本存在兼容问题，新用户优先使用 Python 3.11 或 3.12。
+启动脚本会优先使用 3.14、3.13、3.12 或 3.11；当前依赖组合已在 Python 3.14 上完成测试。
 
 ## 六、新用户首次运行
 
@@ -117,7 +118,7 @@ Uvicorn running on http://127.0.0.1:54321
 
 首次启动器会自动完成以下工作：
 
-1. 检查 Node.js 20+ 和 Python 3.11/3.12；
+1. 检查 Node.js 20+ 和 Python 3.11–3.14；
 2. 在项目根目录创建独立的 `.venv`，避免依赖某台电脑上的固定 Python 路径；
 3. 安装后端依赖并构建前端；
 4. 询问是否配置可选 AI 服务，并把配置保存到不会上传的本地 `.env`；
@@ -259,7 +260,7 @@ py -m unittest discover -s backend -p "test*.py" -v
 
 ### 自动抠图失败
 
-建议使用 Python 3.11/3.12，并重新安装：
+建议使用 Python 3.11–3.14，并重新安装：
 
 ```powershell
 py -m pip install --upgrade "rembg[cpu]" pillow

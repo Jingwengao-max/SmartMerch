@@ -23,6 +23,7 @@ from ai_copywriter import (
     refine_with_ai,
     translate_with_ai,
 )
+from font_catalog import public_font_catalog
 from layout_engine import CANVAS, extract_product_features, load_font
 from learned_layout import (
     adaptive_palette,
@@ -355,6 +356,12 @@ def list_styles():
             for key, spec in STYLE_SPECS.items()
         ]
     }
+
+
+@app.get("/api/fonts")
+def list_fonts():
+    """可供模板分析、文案字段和图层编辑器选择的字体。"""
+    return {"fonts": public_font_catalog()}
 
 
 @app.post("/api/cutout")
