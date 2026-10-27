@@ -5,32 +5,17 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageStat
 
+from font_catalog import resolve_font_path
+
 
 CANVAS = (1080, 1440)
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
-LXGW_WENKAI = (
-    Path(__file__).resolve().parent.parent
-    / "node_modules" / "@fontsource" / "lxgw-wenkai" / "files"
-    / "lxgw-wenkai-latin-500-normal.woff"
-)
 
 
 def load_font(size, weight=400, family=None):
-    if family == "hei":
-        candidates = ("C:/Windows/Fonts/simhei.ttf", "C:/Windows/Fonts/msyh.ttc")
-    elif family == "bold":
-        candidates = ("C:/Windows/Fonts/msyhbd.ttc", "C:/Windows/Fonts/msyh.ttc")
-    else:
-        candidates = (
-            LXGW_WENKAI,
-            "C:/Windows/Fonts/simkai.ttf", "C:/Windows/Fonts/STKAITI.TTF",
-            "C:/Windows/Fonts/FZSTK.TTF", "C:/Windows/Fonts/msyh.ttc",
-            "C:/Windows/Fonts/simhei.ttf", "C:/Windows/Fonts/simsun.ttc",
-        )
-    for path in candidates:
-        if Path(path).exists():
-            return ImageFont.truetype(str(path), size)
-    raise FileNotFoundError("找不到中文字体，请在 layout_engine.py 的 load_font() 中指定字体。")
+    """Load a bundled OFL font by catalog ID, CSS name, or legacy alias."""
+    path = resolve_font_path(family, int(weight))
+    return ImageFont.truetype(str(path), size)
 
 
 def load_templates(template_dir=TEMPLATE_DIR):
