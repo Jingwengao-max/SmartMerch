@@ -256,6 +256,7 @@ def _render(document: dict[str, Any]) -> Image.Image:
             align = element.get("textAlign", "left")
             line_height = int(element.get("lineHeight") or round(font.size * 1.18))
             spacing = float(element.get("letterSpacing") or 0)
+            line_spacings = element.get("lineSpacings") or []
             color = element.get("color", "#222222")
             weight = int(element.get("fontWeight", 400))
             if weight >= 600:
@@ -273,9 +274,14 @@ def _render(document: dict[str, Any]) -> Image.Image:
             else:
                 text_y = y
             for line_index, line in enumerate(lines):
+                line_spacing = float(
+                    line_spacings[line_index]
+                    if line_index < len(line_spacings)
+                    else spacing
+                )
                 box = draw.textbbox((0, 0), line, font=font)
                 line_width = box[2] - box[0]
-                span = line_width + spacing * max(0, len(line) - 1)
+                span = line_width + line_spacing * max(0, len(line) - 1)
                 if align == "center":
                     line_x = x + max(0, (width - span) // 2)
                 elif align == "right":
@@ -283,14 +289,14 @@ def _render(document: dict[str, Any]) -> Image.Image:
                 else:
                     line_x = x
                 line_y = text_y + line_index * line_height - y
-                if spacing:
+                if line_spacing:
                     cursor = line_x - x
                     for character in line:
                         draw.text(
                             (cursor, line_y), character, font=font, fill=color,
                             stroke_width=stroke, stroke_fill=color,
                         )
-                        cursor += draw.textlength(character, font=font) + spacing
+                        cursor += draw.textlength(character, font=font) + line_spacing
                 else:
                     draw.text(
                         (line_x - x, line_y), line, font=font, fill=color,

@@ -73,7 +73,8 @@ SmartMerch/
 │   ├── training/                4 张参考海报及区域标注
 │   ├── API_CONTRACT.md          前后端接口字段说明
 │   ├── requirements.txt         Python 依赖
-│   └── test_pipeline.py         后端测试
+│   ├── test_pipeline.py         后端完整流程测试
+│   └── test_title_layout.py     快速标题排版测试
 ├── start-smartmerch.cmd         Windows 首次启动入口
 ├── start.ps1                    安装、构建和启动脚本
 ├── open-smartmerch.cmd          已完成安装后的快速启动入口
@@ -237,6 +238,9 @@ npm run typecheck
 
 # 前端正式构建
 npm run build
+
+# 只测试标题分行、字号和横向铺满
+npm run test:title
 
 # 后端测试
 py -m unittest discover -s backend -p "test*.py" -v

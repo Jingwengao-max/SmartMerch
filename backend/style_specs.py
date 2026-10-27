@@ -81,7 +81,12 @@ STYLE_SPECS: dict[str, dict] = {
         "variantOverrides": {
             # 版式 1：主标题三行大字铺满标题框、压在商品下层；口号/介绍加半透明浮窗。
             0: {
-                "layout": {"productScale": 1.08, "productShrink": 0.94},
+                "layout": {
+                    "productScale": 1.08,
+                    "productShrink": 0.94,
+                    # 为上方三行主标题保留固定安全区。
+                    "productMinTop": 0.30,
+                },
                 "background": {
                     "haze": {
                         "from": 0.5, "to": 0.8, "color": "accent",
@@ -89,8 +94,15 @@ STYLE_SPECS: dict[str, dict] = {
                     },
                 },
                 "name": {
-                    "lines": 3, "fillBox": True, "zIndex": 1,
-                    "fontFamily": "hei", "weight": 900, "fontScale": 0.9,
+                    # 方案 1 的标题固定在上方安全区，按文字原顺序三行排列。
+                    # 不使用自动铺满，避免标题被商品遮挡后看起来像断字、乱序。
+                    "lines": 3, "fillBox": False, "zIndex": 3,
+                    "font": [420, 100], "flowFit": True,
+                    "maxBlockHeight": 752,
+                    "fixedTitleLines": True, "justifyLines": True,
+                    "lineHeightRatio": 1.08, "twoLineHeightRatio": 1.18,
+                    "fontFamily": "hei", "weight": 900,
+                    "align": "left", "verticalAlign": "top",
                     "emboss": {"offset": 6, "opacity": 0.45, "gray": 0.55},
                 },
                 "sellingPoints": {
@@ -123,7 +135,7 @@ STYLE_SPECS: dict[str, dict] = {
                 "key": "name", "id": "product-name", "role": "name",
                 "label": "商品名", "kind": "text", "regions": ["name"],
                 "color": "accent", "font": [96, 52], "weight": 700, "zIndex": 3,
-                "maxChars": 12, "hint": "4 至 12 字中文商品名",
+                "maxChars": 9, "hint": "1 至 9 字中文商品名，不得使用标点或换行",
             },
             {
                 "key": "slogan", "id": "slogan", "role": "slogan",

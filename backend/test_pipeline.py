@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from font_catalog import FONT_CATALOG, public_font_catalog, resolve_font_path
 from layout_engine import extract_product_features, load_templates, make_candidate
@@ -116,6 +116,127 @@ class PosterPipelineTests(unittest.TestCase):
         magazine_point = next(item for item in magazine["elements"] if item.get("role") == "sellingPoint")
         self.assertLessEqual(len(magazine_point["content"]), 10)
         self.assertNotIn("\n", magazine_point["content"])
+    @unittest.skip("Title tests live in test_title_layout.py")
+    def test_style2_first_title_keeps_strict_row_major_flow(self):
+        from learned_layout import create_document, load_models_for
+
+        model = load_models_for("style2")[0]
+        for title in (
+            "云台", "高清云台", "智能高清云台", "智能高清云台摄像机",
+            "桌面式智能摄像设备", "专业级智能高清云摄",
+        ):
+            with self.subTest(title=title):
+                document = create_document(
+                    job_id="style2-title",
+                    product_url="/product.png",
+                    background_url="/background.jpg",
+                    product_size=(600, 800),
+                    mean_rgb=(150, 180, 180),
+                    copy={
+                        "name": title,
+                        "slogan": "广角覆盖无死角\n精准追踪不偏移",
+                        "intro": "固定的商品介绍文字。",
+                        "sellingPoints": ["广角镜头", "智能追踪", "稳定画面"],
+                    },
+                    style="style2",
+                    model=model,
+                    variant_index=0,
+                    variant_count=4,
+                )
+                heading = next(item for item in document["elements"] if item["id"] == "product-name")
+                product = next(item for item in document["elements"] if item["role"] == "product")
+                lines = heading["content"].splitlines()
+                line_lengths = [len(line) for line in lines]
+
+                self.assertEqual("".join(lines), title)
+                self.assertLessEqual(len(lines), 3)
+                self.assertEqual(line_lengths, sorted(line_lengths, reverse=True))
+                self.assertEqual((heading["textAlign"], heading["verticalAlign"]), ("left", "top"))
+                self.assertGreater(heading["zIndex"], product["zIndex"])
+                self.assertLessEqual(heading["y"] + heading["height"], product["y"])
+                self.assertEqual(heading["height"], heading["lineHeight"] * len(lines))
+                self.assertGreaterEqual(heading["fontSize"], 100)
+                expected_counts = {
+                    1: [1], 2: [2], 3: [3], 4: [2, 2], 5: [3, 2],
+                    6: [3, 3], 7: [4, 3], 8: [4, 4], 9: [3, 3, 3],
+                }[len(title)]
+                self.assertEqual(line_lengths, expected_counts)
+                self.assertEqual(len(heading["lineSpacings"]), len(lines))
+                self.assertTrue(all(value >= 0 for value in heading["lineSpacings"]))
+                from layout_engine import load_font
+                probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+                font = load_font(heading["fontSize"], heading["fontWeight"], heading.get("fontFamily"))
+                for line, spacing in zip(lines, heading["lineSpacings"]):
+                    if len(line) <= 1:
+                        continue
+                    span = probe.textlength(line, font=font) + spacing * (len(line) - 1)
+                    self.assertAlmostEqual(span, heading["width"], delta=2)
+
+    @unittest.skip("Title tests live in test_title_layout.py")
+    def test_style2_title_fixed_distribution_and_semantic_tokens(self):
+        from learned_layout import _semantic_tokens, _split_fixed_title
+
+        expected = {
+            1: [1], 2: [2], 3: [3], 4: [2, 2], 5: [3, 2],
+            6: [3, 3], 7: [4, 3], 8: [4, 4], 9: [3, 3, 3],
+        }
+        source = "桌面式智能摄像设备"
+        for length, counts in expected.items():
+            with self.subTest(length=length):
+                title = source[:length]
+                lines = _split_fixed_title(title)
+                self.assertEqual([len(line) for line in lines], counts)
+                self.assertEqual("".join(lines), title)
+                self.assertEqual(
+                    [len(line) for line in lines],
+                    sorted((len(line) for line in lines), reverse=True),
+                )
+        self.assertEqual(
+            _semantic_tokens(source),
+            (["桌面式", "智能", "摄像", "设备"], ""),
+        )
+
+    @unittest.skip("Title tests live in test_title_layout.py")
+    def test_style2_title_is_limited_to_nine_characters(self):
+        from learned_layout import create_document, load_models_for
+
+        title = "桌面式智能超高清摄像设备"
+        document = create_document(
+            job_id="style2-long-title",
+            product_url="/product.png",
+            background_url="/background.jpg",
+            product_size=(600, 800),
+            mean_rgb=(150, 180, 180),
+            copy={"name": title, "slogan": "清晰稳定\n广角追踪", "intro": "商品介绍。", "sellingPoints": []},
+            style="style2",
+            model=load_models_for("style2")[0],
+            variant_index=0,
+            variant_count=4,
+        )
+        heading = next(item for item in document["elements"] if item["id"] == "product-name")
+        self.assertEqual(heading["content"].replace("\n", ""), title[:9])
+        self.assertEqual([len(line) for line in heading["content"].splitlines()], [3, 3, 3])
+
+    @unittest.skip("Title tests live in test_title_layout.py")
+    def test_style2_slogan_preserves_explicit_line_order(self):
+        from learned_layout import create_document, load_models_for
+
+        slogan = "新鲜直达\n美味随行"
+        document = create_document(
+            job_id="style2-slogan",
+            product_url="/product.png",
+            background_url="/background.jpg",
+            product_size=(600, 800),
+            mean_rgb=(150, 180, 180),
+            copy={"name": "精品礼盒", "slogan": slogan, "intro": "商品介绍。", "sellingPoints": []},
+            style="style2",
+            model=load_models_for("style2")[0],
+            variant_index=0,
+            variant_count=4,
+        )
+        element = next(item for item in document["elements"] if item["id"] == "slogan")
+        self.assertEqual(element["content"], slogan)
+
     def test_transparent_input_and_layout(self):
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "product.png"

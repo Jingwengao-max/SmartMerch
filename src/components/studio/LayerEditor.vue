@@ -108,6 +108,11 @@ function layerTypeLabel(type: PosterElement['type']) {
   return TYPE_LABELS[type]
 }
 
+function isJustifiedLine(element: PosterElement, index: number) {
+  if (element.lineAlignments) return element.lineAlignments[index] === 'justify'
+  return !!element.lineSpacings
+}
+
 function snapTargets(axis: Guide['axis'], ignoredId: string) {
   const values = axis === 'x'
     ? [0, working.value.canvas.width / 2, working.value.canvas.width]
@@ -445,20 +450,38 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             <img v-else-if="element.type === 'image'" :src="assetUrl(element.src)" alt="图层" class="h-full w-full object-contain pointer-events-none" />
             <div
               v-else
-              class="flex h-full w-full whitespace-pre-line leading-[1.18]"
+              class="flex h-full w-full flex-col leading-[1.18]"
               :style="{
                 fontSize: `${(element.fontSize || 40) * scale}px`,
                 fontWeight: element.fontWeight || 400,
                 fontFamily: fontStack(element.fontFamily),
                 color: element.color || '#222',
-                textAlign: element.textAlign || 'left',
-                letterSpacing: element.letterSpacing ? `${element.letterSpacing * scale}px` : undefined,
-                lineHeight: element.lineHeight ? `${element.lineHeight * scale}px` : undefined,
                 opacity: element.opacity ?? 1,
-                alignItems: element.verticalAlign === 'middle' ? 'center' : element.verticalAlign === 'bottom' ? 'flex-end' : 'flex-start',
-                justifyContent: element.textAlign === 'center' ? 'center' : element.textAlign === 'right' ? 'flex-end' : 'flex-start',
+                alignItems: element.textAlign === 'center' ? 'center' : element.textAlign === 'right' ? 'flex-end' : 'flex-start',
+                justifyContent: element.verticalAlign === 'middle' ? 'center' : element.verticalAlign === 'bottom' ? 'flex-end' : 'flex-start',
               }"
-            >{{ element.content }}</div>
+            >
+              <div
+                v-for="(line, index) in (element.content || '').split('\n')"
+                :key="index"
+                class="w-full whitespace-pre"
+                :class="isJustifiedLine(element, index)
+                  ? (line.length > 1 ? 'flex justify-between' : 'flex justify-center')
+                  : ''"
+                :style="{
+                  textAlign: element.textAlign || 'left',
+                  letterSpacing: isJustifiedLine(element, index)
+                    ? undefined
+                    : `${(element.lineSpacings?.[index] ?? element.letterSpacing ?? 0) * scale}px`,
+                  lineHeight: element.lineHeight ? `${element.lineHeight * scale}px` : undefined,
+                }"
+              >
+                <template v-if="isJustifiedLine(element, index)">
+                  <span v-for="(character, characterIndex) in line.split('')" :key="characterIndex">{{ character }}</span>
+                </template>
+                <template v-else>{{ line }}</template>
+              </div>
+            </div>
             <button
               v-if="selectedId === element.id"
               data-resize="true"
