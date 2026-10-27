@@ -105,6 +105,15 @@ class TitleLayoutTests(unittest.TestCase):
         self.assertEqual((round(width * 1080), round(height * 1440)), (830, 752))
         self.assertEqual(model["canvas"], [1080, 1440])
 
+    def test_product_name_sits_between_photo_and_its_shadow(self):
+        name = next(
+            field for field in get_style_spec("style2", 0)["fields"] if field["key"] == "name"
+        )
+        product_z = 2
+        shadow_z = max(0, name["zIndex"] - 1)
+        self.assertLess(name["zIndex"], product_z)
+        self.assertLess(shadow_z, name["zIndex"])
+
 
 if __name__ == "__main__":
     unittest.main()

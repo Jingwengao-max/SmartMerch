@@ -96,7 +96,8 @@ STYLE_SPECS: dict[str, dict] = {
                 "name": {
                     # 方案 1 的标题固定在上方安全区，按文字原顺序三行排列。
                     # 不使用自动铺满，避免标题被商品遮挡后看起来像断字、乱序。
-                    "lines": 3, "fillBox": False, "zIndex": 3,
+                    # 层级顺序：商品照片 > 商品名 > 商品名投影。
+                    "lines": 3, "fillBox": False, "zIndex": 1,
                     "font": [420, 100], "flowFit": True,
                     "maxBlockHeight": 752,
                     "fixedTitleLines": True, "justifyLines": True,
