@@ -52,6 +52,8 @@ export interface PosterElement {
   fontWeight?: number
   fontFamily?: string
   letterSpacing?: number
+  lineSpacings?: number[]
+  lineAlignments?: Array<'left' | 'center' | 'right' | 'justify'>
   lineHeight?: number
   color?: string
   textAlign?: 'left' | 'center' | 'right'
@@ -74,7 +76,6 @@ export interface GenerateResult {
   input: Record<string, unknown>
   candidates: PosterCandidate[]
 }
-
 async function parseResponse<T>(response: Response): Promise<T> {
   const payload = await response.json().catch(() => null)
   if (!response.ok) throw new Error(payload?.detail || `请求失败（HTTP ${response.status}）`)

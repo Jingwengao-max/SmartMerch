@@ -8,9 +8,11 @@ import math
 import re
 import statistics
 import textwrap
+from itertools import combinations
 from pathlib import Path
 from typing import Any
 
+import jieba
 from PIL import Image, ImageDraw, ImageFilter
 
 from layout_engine import CANVAS, load_font
@@ -184,6 +186,7 @@ def build_style_background(target: Path, palette: dict[str, str], product: Image
             float(layout.get("productMinLeft", 0.0)),
             float(layout.get("productScale", 1.0)),
             float(layout.get("productShrink", 1.0)),
+            float(layout.get("productMinTop", 0.0)),
         )
         shadow = Image.new("RGBA", image.size, (0, 0, 0, 0))
         shadow_draw = ImageDraw.Draw(shadow)
@@ -384,13 +387,19 @@ def _darken(color: str, amount: float = 0.22) -> str:
 def _product_rect(model: dict[str, Any], product_size: tuple[int, int],
                   min_left_ratio: float = 0.0,
                   scale: float = 1.0,
-                  shrink: float = 1.0) -> tuple[int, int, int, int]:
+                  shrink: float = 1.0,
+                  min_top_ratio: float = 0.0) -> tuple[int, int, int, int]:
     px, py, pw, ph = _region(model, "product")
     min_left = round(CANVAS[0] * min_left_ratio)
     if min_left > px:
         # 商品整体限制在中轴线右侧，必要时等比缩小。
         px = min_left
         pw = max(1, CANVAS[0] - min_left)
+    min_top = round(CANVAS[1] * min_top_ratio)
+    if min_top > py:
+        bottom = py + ph
+        py = min_top
+        ph = max(1, bottom - py)
     source_ratio = product_size[0] / max(1, product_size[1])
     target_ratio = pw / ph
     if source_ratio > target_ratio:
@@ -441,23 +450,125 @@ def _partition(tokens: list[str], parts: int) -> list[list[str]]:
     return groups[::-1]
 
 
-def _split_title(text: str, line_count: int = 3) -> list[str]:
-    """按语义尽量均衡地拆行：英文按词、中文按字，短标题自动少拆。"""
+def _semantic_tokens(text: str) -> tuple[list[str], str]:
     cleaned = re.sub(r"\s+", " ", text).strip()
     if not cleaned:
+        return [], ""
+    if re.fullmatch(r"[\x00-\x7f ]+", cleaned):
+        return cleaned.split(" "), " "
+    return [token for token in jieba.lcut(cleaned) if token.strip()], ""
+
+
+def _visible_length(text: str) -> int:
+    return len(re.sub(r"[\s\W_]+", "", text, flags=re.UNICODE))
+
+
+def _split_fixed_title(text: str) -> list[str]:
+    """Apply the fixed 1-9 character headline distribution."""
+    compact = re.sub(r"\s+", "", text)
+    target_counts = {
+        1: (1,),
+        2: (2,),
+        3: (3,),
+        4: (2, 2),
+        5: (3, 2),
+        6: (3, 3),
+        7: (4, 3),
+        8: (4, 4),
+        9: (3, 3, 3),
+    }
+    characters = list(compact[:9])
+    if not characters:
         return []
-    if " " in cleaned:
-        tokens = cleaned.split(" ")
-        separator = " "
-    else:
-        tokens = [character for character in cleaned if not character.isspace()]
-        separator = ""
-    if len(tokens) <= 1:
-        return [cleaned]
-    # 尽量按要求行数拆；标题本身短于行数时按实际字数拆。
-    parts = min(line_count, len(tokens))
-    groups = _partition(tokens, parts)
-    return [separator.join(group) for group in groups if group]
+    counts = target_counts[len(characters)]
+    lines: list[str] = []
+    cursor = 0
+    for count in counts:
+        lines.append("".join(characters[cursor:cursor + count]))
+        cursor += count
+    return lines
+
+
+def _partition_semantic(tokens: list[str], max_lines: int, separator: str,
+                        prefer_fewest_lines: bool = False,
+                        max_line_chars: int | None = None) -> list[str]:
+    """按语义词块分行，且每一行字数不得少于其下方任意一行。"""
+    count = len(tokens)
+    if count <= 1:
+        return [separator.join(tokens)] if tokens else []
+
+    total = sum(_visible_length(token) for token in tokens)
+    target_lines = 1 if total <= 3 else 2 if total <= 5 else 3
+    target_lines = min(target_lines, max_lines, count)
+    best: tuple[float, int, list[str]] | None = None
+
+    for line_count in range(1, min(max_lines, count) + 1):
+        for cuts in combinations(range(1, count), line_count - 1):
+            boundaries = (0, *cuts, count)
+            groups = [tokens[boundaries[i]:boundaries[i + 1]] for i in range(line_count)]
+            lines = [separator.join(group) for group in groups]
+            lengths = [_visible_length(line) for line in lines]
+            if any(length <= 0 for length in lengths):
+                continue
+            if max_line_chars is not None and any(length > max_line_chars for length in lengths):
+                continue
+            # 硬约束：下行字数不能超过上行。
+            if any(lengths[index] < lengths[index + 1] for index in range(len(lengths) - 1)):
+                continue
+
+            short_line_penalty = sum(
+                80 for length in lengths if line_count > 1 and length == 1
+            )
+            imbalance = (lengths[0] - lengths[-1]) * 3 + sum(
+                abs(lengths[index] - lengths[index + 1])
+                for index in range(len(lengths) - 1)
+            )
+            line_count_penalty = (
+                line_count * 10_000
+                if prefer_fewest_lines
+                else abs(line_count - target_lines) * 120
+            )
+            score = line_count_penalty + imbalance + short_line_penalty
+            candidate = (score, line_count, lines)
+            if best is None or candidate < best:
+                best = candidate
+
+    if best:
+        return best[2]
+
+    # Only reachable when a single semantic token exceeds the line limit.
+    tokens_per_line = max(1, math.ceil(count / max_lines))
+    return [
+        separator.join(tokens[index:index + tokens_per_line])
+        for index in range(0, count, tokens_per_line)
+    ][:max_lines]
+
+
+def _split_title(text: str, line_count: int = 3,
+                 prefer_fewest_lines: bool = False,
+                 max_line_chars: int | None = None) -> list[str]:
+    """按语义和原始顺序分行，并保证行字数自上而下不增加。"""
+    explicit_lines = [line.strip() for line in text.splitlines() if line.strip()]
+    explicit_lengths = [_visible_length(line) for line in explicit_lines]
+    if (
+        len(explicit_lines) > 1
+        and len(explicit_lines) <= line_count
+        and (
+            max_line_chars is None
+            or all(length <= max_line_chars for length in explicit_lengths)
+        )
+        and all(
+            explicit_lengths[index] >= explicit_lengths[index + 1]
+            for index in range(len(explicit_lengths) - 1)
+        )
+        and not prefer_fewest_lines
+    ):
+        return explicit_lines[:line_count]
+
+    tokens, separator = _semantic_tokens(re.sub(r"\s+", " ", text).strip())
+    return _partition_semantic(
+        tokens, line_count, separator, prefer_fewest_lines, max_line_chars,
+    )
 
 
 def _fit_lines(lines: list[str], rect: tuple[int, int, int, int],
@@ -491,6 +602,73 @@ def _auto_fit_text(text: str, rect: tuple[int, int, int, int], start: int, minim
                 return "\n".join(lines), size, line_height
     lines = _split_title(cleaned, max(1, max_lines))
     return "\n".join(lines), minimum, round(minimum * 1.05)
+
+
+def _fit_flow_lines(lines: list[str], rect: tuple[int, int, int, int],
+                    start: int, minimum: int, weight: int, family: str | None,
+                    max_width: int, max_height: int,
+                    line_height_ratio: float = 1.08) -> tuple[int, int]:
+    """同时约束文字块的宽度和高度，字号随行数与最长行自动缩放。"""
+    probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    usable_width = min(rect[2], max_width) * 0.96
+    low, high = max(1, minimum), max(1, start)
+    best_size = max(1, minimum)
+    best_line_height = max(1, round(minimum * line_height_ratio))
+    while low <= high:
+        size = (low + high) // 2
+        font = load_font(size, weight, family)
+        widths = [probe.textlength(line, font=font) for line in lines]
+        line_height = max(1, round(size * line_height_ratio))
+        block_height = (len(lines) - 1) * line_height + size
+        if max(widths or [0]) <= usable_width and block_height <= max_height:
+            best_size = size
+            best_line_height = line_height
+            low = size + 1
+        else:
+            high = size - 1
+    return best_size, best_line_height
+
+
+def layout_fixed_title(text: str, frame_width: int, start: int = 420,
+                       minimum: int = 100, weight: int = 900,
+                       family: str | None = "hei", max_height: int = 752,
+                       line_height_ratio: float = 1.08,
+                       two_line_height_ratio: float = 1.18) -> dict[str, Any]:
+    """Lay out a title independently from the full poster pipeline."""
+    compact = re.sub(r"\s+", "", text)[:9]
+    lines = _split_fixed_title(compact)
+    if not lines:
+        return {
+            "content": "", "lines": [], "fontSize": minimum,
+            "lineHeight": 0, "lineSpacings": [], "lineAlignments": [],
+        }
+    rect = (0, 0, frame_width, max_height)
+    effective_ratio = two_line_height_ratio if len(lines) == 2 else line_height_ratio
+    font_size, line_height = _fit_flow_lines(
+        lines, rect, start, minimum, weight, family,
+        frame_width, max_height, effective_ratio,
+    )
+    measure_font = load_font(font_size, weight, family)
+    probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    line_spacings = []
+    line_alignments = ["justify"] * len(lines)
+    for line in lines:
+        gaps = max(1, len(line) - 1)
+        line_width = probe.textlength(line, font=measure_font)
+        line_spacings.append(round(max(0.0, (frame_width - line_width) / gaps), 2))
+    if len(lines) == 2 and len(compact) in {5, 7}:
+        line_alignments[1] = "left"
+        line_spacings[1] = 0.0
+    return {
+        "content": "\n".join(lines),
+        "lines": lines,
+        "fontSize": font_size,
+        "lineHeight": line_height,
+        "lineSpacings": line_spacings,
+        "lineAlignments": line_alignments,
+    }
+
+
 def create_document(job_id: str, product_url: str, background_url: str,
                     product_size: tuple[int, int], mean_rgb: tuple[int, int, int],
                     copy: dict[str, Any], style: str = "editorial",
@@ -509,6 +687,7 @@ def create_document(job_id: str, product_url: str, background_url: str,
         float(layout.get("productMinLeft", 0.0)),
         float(layout.get("productScale", 1.0)),
         float(layout.get("productShrink", 1.0)),
+        float(layout.get("productMinTop", 0.0)),
     )
 
     oversized = bool(style_flags.get("oversizedHeadline", True))
@@ -597,9 +776,34 @@ def create_document(job_id: str, product_url: str, background_url: str,
                 )
                 extras["lineHeight"] = line_height
             elif field.get("lines"):
-                lines = _split_title(content, int(field["lines"]))
-                content = "\n".join(lines)
-                if field.get("fillBox"):
+                fixed_layout: dict[str, Any] | None = None
+                if field.get("fixedTitleLines"):
+                    start, minimum = (
+                        font_spec
+                        if isinstance(font_spec, (list, tuple))
+                        else (font_spec, font_spec)
+                    )
+                    fixed_layout = layout_fixed_title(
+                        content,
+                        frame_width=rect[2],
+                        start=int(start),
+                        minimum=int(minimum),
+                        weight=weight,
+                        family=family,
+                        max_height=int(field.get("maxBlockHeight", rect[3])),
+                        line_height_ratio=float(field.get("lineHeightRatio", 1.08)),
+                        two_line_height_ratio=float(field.get("twoLineHeightRatio", 1.18)),
+                    )
+                    content = fixed_layout["content"]
+                    lines = fixed_layout["lines"]
+                    font_size = int(fixed_layout["fontSize"])
+                    extras["lineHeight"] = int(fixed_layout["lineHeight"])
+                    extras["lineSpacings"] = fixed_layout["lineSpacings"]
+                    extras["lineAlignments"] = fixed_layout["lineAlignments"]
+                else:
+                    lines = _split_title(content, int(field["lines"]))
+                    content = "\n".join(lines)
+                if fixed_layout is None and field.get("fillBox"):
                     font_size, line_height, spacing = _fit_lines(lines, rect, weight, family)
                     font_scale = float(field.get("fontScale", 1.0))
                     if font_scale != 1.0:
@@ -607,10 +811,36 @@ def create_document(job_id: str, product_url: str, background_url: str,
                         line_height = round(line_height * font_scale)
                     extras["lineHeight"] = line_height
                     extras["letterSpacing"] = spacing
-                else:
+                elif fixed_layout is None and field.get("flowFit"):
+                    start, minimum = (
+                        font_spec
+                        if isinstance(font_spec, (list, tuple))
+                        else (font_spec, font_spec)
+                    )
+                    font_size, line_height = _fit_flow_lines(
+                        lines, rect, int(start), int(minimum), weight, family,
+                        int(field.get("maxBlockWidth", rect[2])),
+                        int(field.get("maxBlockHeight", rect[3])),
+                        float(field.get("lineHeightRatio", 1.08)),
+                    )
+                    extras["lineHeight"] = line_height
+                elif fixed_layout is None:
                     longest = max(lines, key=len) if lines else content
                     start, minimum = font_spec if isinstance(font_spec, (list, tuple)) else (font_spec, font_spec)
                     font_size = _single_line_font_size(longest, rect[2], int(start), int(minimum), weight)
+                if field.get("lineHeight"):
+                    extras["lineHeight"] = max(font_size, int(field["lineHeight"]))
+                if fixed_layout is None and field.get("justifyLines"):
+                    measure_font = load_font(font_size, weight, family)
+                    probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+                    line_spacings = []
+                    for line in lines:
+                        gaps = max(1, len(line) - 1)
+                        line_width = probe.textlength(line, font=measure_font)
+                        line_spacings.append(
+                            round(max(0.0, (rect[2] - line_width) / gaps), 2)
+                        )
+                    extras["lineSpacings"] = line_spacings
             elif isinstance(font_spec, (list, tuple)):
                 start, minimum = font_spec
                 if "compactFont" in field and not oversized:
@@ -690,6 +920,14 @@ def create_document(job_id: str, product_url: str, background_url: str,
             if family:
                 element["fontFamily"] = family
             element.update(extras)
+            if field.get("lines") and not field.get("fillBox"):
+                # Text elements should report their real visual block instead of
+                # the full template region, so overlap checks and editor bounds
+                # reflect what readers actually see.
+                line_height = int(extras.get("lineHeight") or round(font_size * 1.18))
+                element["height"] = min(
+                    rect[3], (len(lines) - 1) * line_height + font_size,
+                )
             emboss = field.get("emboss")
             if emboss:
                 offset = int(emboss.get("offset", 6))
