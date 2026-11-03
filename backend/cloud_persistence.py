@@ -1,7 +1,7 @@
 """Optional Supabase persistence for cloud deployments.
 
 The application keeps working locally when Supabase is not configured. In a
-deployment, the service-role key stays on the server and is never sent to the
+deployment, the secret key stays on the server and is never sent to the
 browser.
 """
 
@@ -16,7 +16,15 @@ import requests
 def cloud_persistence_configured() -> bool:
     return bool(
         os.getenv("SUPABASE_URL", "").strip()
-        and os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+        and _secret_key()
+    )
+
+
+def _secret_key() -> str:
+    """Prefer Supabase's current secret key, with legacy upgrade support."""
+    return (
+        os.getenv("SUPABASE_SECRET_KEY", "").strip()
+        or os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
     )
 
 
@@ -24,13 +32,14 @@ def _write(table: str, payload: dict[str, Any], *, upsert: bool = False) -> bool
     if not cloud_persistence_configured():
         return False
     base = os.environ["SUPABASE_URL"].strip().rstrip("/")
-    key = os.environ["SUPABASE_SERVICE_ROLE_KEY"].strip()
+    key = _secret_key()
     headers = {
         "apikey": key,
-        "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
         "Prefer": "resolution=merge-duplicates,return=minimal" if upsert else "return=minimal",
     }
+    if not key.startswith("sb_secret_"):
+        headers["Authorization"] = f"Bearer {key}"
     try:
         response = requests.post(
             f"{base}/rest/v1/{table}", headers=headers, json=payload, timeout=10,

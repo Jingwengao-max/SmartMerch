@@ -22,6 +22,21 @@ class PosterPipelineTests(unittest.TestCase):
             self.assertFalse(cloud_persistence_configured())
             self.assertFalse(save_job({"job_id": "local", "status": "complete"}))
 
+    def test_cloud_persistence_accepts_current_supabase_secret_key(self):
+        from cloud_persistence import save_job
+
+        response = Mock()
+        response.raise_for_status.return_value = None
+        with patch.dict(os.environ, {
+            "SUPABASE_URL": "https://project.supabase.co",
+            "SUPABASE_SECRET_KEY": "sb_secret_server-only",
+        }, clear=True), patch("cloud_persistence.requests.post", return_value=response) as post:
+            self.assertTrue(save_job({"job_id": "cloud", "status": "complete"}))
+
+        headers = post.call_args.kwargs["headers"]
+        self.assertEqual(headers["apikey"], "sb_secret_server-only")
+        self.assertNotIn("Authorization", headers)
+
     def test_bundled_font_catalog_is_renderable_and_portable(self):
         from layout_engine import load_font
 

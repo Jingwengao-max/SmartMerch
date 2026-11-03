@@ -231,7 +231,7 @@ supabase/migrations/001_initial.sql
 ```
 
 该迁移创建 `generation_jobs` 与 `feedback` 表并启用 RLS。浏览器没有直接写入
-权限；FastAPI 使用仅保存在服务端的 service-role key 写入。
+权限；FastAPI 使用仅保存在服务端的 Secret Key 写入。
 
 ### 2. 配置 Railway
 
@@ -242,7 +242,7 @@ AI_API_URL=视觉模型兼容接口地址
 AI_API_KEY=视觉模型密钥
 AI_MODEL=qwen3-vl-plus
 SUPABASE_URL=https://你的项目.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=仅服务端使用的service-role密钥
+SUPABASE_SECRET_KEY=仅服务端使用的sb_secret密钥
 SMARTMERCH_RUNTIME_DIR=/data
 ```
 
