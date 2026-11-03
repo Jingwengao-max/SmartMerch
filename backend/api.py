@@ -44,6 +44,7 @@ from poster_design_source import (
 )
 from quality_evaluator import evaluate_document
 from style_specs import STYLE_SPECS
+from cloud_persistence import cloud_persistence_configured, save_feedback, save_job
 
 
 def _load_local_env() -> None:
@@ -71,10 +72,11 @@ _load_local_env()
 ROOT = Path(__file__).resolve().parent
 WEB_DIR = ROOT / "web"
 FRONTEND_DIR = ROOT.parent / "dist"
-GENERATED_DIR = ROOT / "generated"
-DATA_DIR = ROOT / "data"
-GENERATED_DIR.mkdir(exist_ok=True)
-DATA_DIR.mkdir(exist_ok=True)
+RUNTIME_DIR = Path(os.getenv("SMARTMERCH_RUNTIME_DIR", str(ROOT))).expanduser().resolve()
+GENERATED_DIR = RUNTIME_DIR / "generated"
+DATA_DIR = RUNTIME_DIR / "data"
+GENERATED_DIR.mkdir(parents=True, exist_ok=True)
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="AI商品海报工作室", version="1.0.0")
 app.add_middleware(
@@ -326,6 +328,8 @@ def health():
     return {
         "status": "ok",
         "copywriterAi": ai_configured(),
+        "database": cloud_persistence_configured(),
+        "runtimeDirectory": str(RUNTIME_DIR),
         "aiModel": os.getenv("AI_MODEL", "qwen3-vl-plus"),
         "posterDesign": poster_design_available(),
         "layoutModel": layout_model["modelType"],
@@ -379,11 +383,18 @@ async def cutout_product(image: UploadFile = File(...)):
     try:
         product_path = job_dir / "product_cutout.png"
         product = cutout(source, product_path)
+        features = extract_product_features(product)
+        save_job({
+            "job_id": job_id,
+            "status": "cutout_ready",
+            "image_name": image.filename or "product.png",
+            "product_features": features,
+        })
         return {
             "jobId": job_id,
             "imageName": image.filename or "product.png",
             "cutoutUrl": _public(product_path),
-            "productFeatures": extract_product_features(product),
+            "productFeatures": features,
         }
     except Exception as error:
         raise HTTPException(500, f"自动抠图失败：{error}") from error
@@ -679,6 +690,15 @@ async def generate(
         (job_dir / "documents.json").write_text(
             json.dumps(documents, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+        save_job({
+            "job_id": job_id,
+            "status": "complete",
+            "style": style,
+            "image_name": image.filename or "product.png",
+            "product_features": features,
+            "candidate_count": len(documents),
+            "document": documents,
+        })
         return {
             "jobId": job_id,
             "input": {
@@ -730,6 +750,11 @@ def render_endpoint(document: dict[str, Any]):
 
 @app.post("/api/feedback")
 def feedback(payload: dict[str, Any]):
+    save_feedback({
+        "job_id": payload.get("jobId", ""),
+        "template_id": payload.get("templateId", ""),
+        "rating": payload.get("rating", 5),
+    })
     path = DATA_DIR / "web_feedback.csv"
     exists = path.exists()
     with path.open("a", encoding="utf-8-sig", newline="") as stream:
@@ -773,6 +798,12 @@ if __name__ == "__main__":
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
             probe.bind(("127.0.0.1", 0))
             return int(probe.getsockname()[1])
+
+    cloud_port = os.getenv("PORT", "").strip()
+    if cloud_port:
+        print(f"SmartMerch listening on 0.0.0.0:{cloud_port}", flush=True)
+        uvicorn.run(app, host="0.0.0.0", port=int(cloud_port))
+        raise SystemExit(0)
 
     preview_port = find_free_port()
     preview_url = f"http://127.0.0.1:{preview_port}/studio"

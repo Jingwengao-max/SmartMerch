@@ -15,6 +15,13 @@ from quality_evaluator import evaluate_document
 
 
 class PosterPipelineTests(unittest.TestCase):
+    def test_cloud_persistence_is_optional(self):
+        from cloud_persistence import cloud_persistence_configured, save_job
+
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(cloud_persistence_configured())
+            self.assertFalse(save_job({"job_id": "local", "status": "complete"}))
+
     def test_bundled_font_catalog_is_renderable_and_portable(self):
         from layout_engine import load_font
 

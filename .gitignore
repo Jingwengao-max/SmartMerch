@@ -10,6 +10,8 @@ npm-debug.log*
 .npm-cache/
 .test-tmp/
 .env
+.env.*
+!.env.production.example
 
 # Python backend
 backend/.venv/
