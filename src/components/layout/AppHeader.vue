@@ -21,11 +21,11 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
     <div class="mx-auto flex h-16 items-center justify-between px-6 md:h-[72px] md:px-10 lg:px-16">
       <RouterLink to="/" class="flex items-center gap-2.5">
         <span class="inline-block h-2.5 w-2.5 rounded-full bg-sage"></span>
-        <span class="font-display text-xl tracking-wide">智绘商品</span>
+        <span class="font-display text-xl tracking-wide">SmartMerch</span>
       </RouterLink>
 
       <nav class="hidden items-center gap-8 font-mono text-[11px] uppercase tracking-[0.18em] text-ink-soft md:flex">
-        <a href="#original" class="transition-colors hover:text-ink">原物</a>
+        <a href="#compare" class="transition-colors hover:text-ink">原图与成品</a>
         <a href="#works" class="transition-colors hover:text-ink">作品</a>
         <a href="#about" class="transition-colors hover:text-ink">关于</a>
       </nav>

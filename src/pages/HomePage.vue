@@ -2,9 +2,9 @@
 import AppHeader from '@/components/layout/AppHeader.vue'
 import AppFooter from '@/components/layout/AppFooter.vue'
 import HeroSection from '@/components/home/HeroSection.vue'
-import OriginalSection from '@/components/home/OriginalSection.vue'
 import TransformationSection from '@/components/home/TransformationSection.vue'
 import WorksGallery from '@/components/home/WorksGallery.vue'
+import ProcessSection from '@/components/home/ProcessSection.vue'
 import ManifestoSection from '@/components/home/ManifestoSection.vue'
 </script>
 
@@ -13,9 +13,9 @@ import ManifestoSection from '@/components/home/ManifestoSection.vue'
     <AppHeader />
     <main>
       <HeroSection />
-      <OriginalSection />
       <TransformationSection />
       <WorksGallery />
+      <ProcessSection />
       <ManifestoSection />
     </main>
     <AppFooter />
