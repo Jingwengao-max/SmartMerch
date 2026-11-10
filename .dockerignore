@@ -1,0 +1,16 @@
+.git
+.github
+.env
+.env.*
+!.env.production.example
+.venv
+backend/.venv
+node_modules
+dist
+backend/generated
+backend/output
+backend/data
+backend/.preview-browser-profile
+*.pyc
+__pycache__
+.test-tmp
