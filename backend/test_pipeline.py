@@ -349,6 +349,41 @@ class PosterPipelineTests(unittest.TestCase):
             rendered = Image.open(background)
             self.assertEqual(rendered.size, (1080, 1440))
             self.assertLess(rendered.getpixel((80, 100))[0], 160)
+
+    def test_style2_fourth_variant_has_flipped_blurred_reflection(self):
+        from learned_layout import create_document, load_models_for
+
+        model = load_models_for("style2")[3]
+        document = create_document(
+            job_id="style2-reflection",
+            product_url="/product.png",
+            background_url="/background.jpg",
+            product_size=(600, 800),
+            mean_rgb=(150, 180, 180),
+            copy={
+                "name": "桌面式智能摄像设备",
+                "slogan": "清晰稳定",
+                "intro": "商品介绍。",
+                "sellingPoints": ["广角", "智能", "稳定"],
+            },
+            style="style2",
+            model=model,
+            variant_index=3,
+            variant_count=4,
+        )
+        reflection = next(
+            item for item in document["elements"] if item["role"] == "product-reflection"
+        )
+        product = next(item for item in document["elements"] if item["role"] == "product")
+        self.assertEqual(reflection["src"], "/product.png")
+        self.assertTrue(reflection["flipX"])
+        self.assertTrue(reflection["flipY"])
+        self.assertLess(reflection["opacity"], 0.3)
+        self.assertGreater(reflection["blur"], 0)
+        self.assertLess(reflection["x"] + reflection["width"], document["canvas"]["width"] / 2)
+        self.assertGreater(reflection["y"], document["canvas"]["height"] / 2)
+        self.assertLess(reflection["zIndex"], product["zIndex"])
+
     def test_quality_evaluator_detects_overlap(self):
         document = {
             "canvas": {"width": 1080, "height": 1350},

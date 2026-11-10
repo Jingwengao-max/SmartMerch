@@ -129,6 +129,13 @@ STYLE_SPECS: dict[str, dict] = {
                     },
                 },
             },
+            3: {
+                "layout": {
+                    "reflectionRegion": "reflection",
+                    "reflectionOpacity": 0.18,
+                    "reflectionBlur": 22,
+                },
+            },
         },
         "productNameField": "name",
         "fields": [

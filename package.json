@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
-    "test:title": "cd backend && ..\\.venv\\Scripts\\python.exe -m unittest -v test_title_layout.py"
+    "test:title": "cd backend && ..\\.venv\\Scripts\\python.exe -m unittest -v test_title_layout.py",
+    "test:templates": "cd backend && ..\\.venv\\Scripts\\python.exe -m unittest -v test_poster_analyzer.py test_template_compiler.py test_template_instantiate.py test_template_store.py"
   },
   "dependencies": {
     "@fontsource/long-cang": "^5.3.0",

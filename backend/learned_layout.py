@@ -423,6 +423,21 @@ def _product_rect(model: dict[str, Any], product_size: tuple[int, int],
     return (left, top, render_w, render_h)
 
 
+def _contained_rect(region: tuple[int, int, int, int],
+                    source_size: tuple[int, int]) -> tuple[int, int, int, int]:
+    """Fit an image inside a region without changing its aspect ratio."""
+    x, y, width, height = region
+    source_ratio = source_size[0] / max(1, source_size[1])
+    target_ratio = width / max(1, height)
+    if source_ratio > target_ratio:
+        render_width, render_height = width, round(width / source_ratio)
+    else:
+        render_height, render_width = height, round(height * source_ratio)
+    left = x + (width - render_width) // 2
+    top = y + (height - render_height) // 2
+    return (left, top, render_width, render_height)
+
+
 def _partition(tokens: list[str], parts: int) -> list[list[str]]:
     """把 tokens 连续切成 parts 段，使最长一段的字符数最小。"""
     count = len(tokens)
@@ -698,6 +713,18 @@ def create_document(job_id: str, product_url: str, background_url: str,
             "height": product_rect[3], "rotation": 0, "zIndex": 2,
         },
     ]
+    reflection_region = layout.get("reflectionRegion")
+    if style == "style2" and variant_index == 3 and reflection_region in model.get("regions", {}):
+        reflection_rect = _contained_rect(_region(model, reflection_region), product_size)
+        elements.append({
+            "id": "product-reflection", "type": "image", "role": "product-reflection",
+            "src": product_url, "x": reflection_rect[0], "y": reflection_rect[1],
+            "width": reflection_rect[2], "height": reflection_rect[3],
+            "rotation": 0, "zIndex": 1,
+            "opacity": float(layout.get("reflectionOpacity", 0.18)),
+            "blur": int(layout.get("reflectionBlur", 22)),
+            "flipX": True, "flipY": True,
+        })
     point_rects: dict[str, list[tuple[int, int, int, int]]] = {}
 
     if style == "retro" and "year" in model.get("regions", {}):

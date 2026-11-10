@@ -13,6 +13,7 @@ type GeometryField = { key: 'x' | 'y' | 'width' | 'height'; label: string }
 const SNAP_THRESHOLD = 8
 const ROLE_LABELS: Record<string, string> = {
   product: '商品主体',
+  'product-reflection': '商品倒影',
   heroTitle: '主标题',
   title: '标题',
   subtitle: '中文标题',
@@ -447,7 +448,17 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 borderRadius: `${(element.radius || 0) * scale}px`,
               }"
             ></div>
-            <img v-else-if="element.type === 'image'" :src="assetUrl(element.src)" alt="图层" class="h-full w-full object-contain pointer-events-none" />
+            <img
+              v-else-if="element.type === 'image'"
+              :src="assetUrl(element.src)"
+              alt="图层"
+              class="h-full w-full object-contain pointer-events-none"
+              :style="{
+                opacity: element.opacity ?? 1,
+                filter: element.blur ? `blur(${element.blur * scale}px)` : undefined,
+                transform: `${element.flipX ? 'scaleX(-1)' : ''} ${element.flipY ? 'scaleY(-1)' : ''}`.trim() || undefined,
+              }"
+            />
             <div
               v-else
               class="flex h-full w-full flex-col leading-[1.18]"

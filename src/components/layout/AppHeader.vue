@@ -28,6 +28,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
         <a href="#original" class="transition-colors hover:text-ink">原物</a>
         <a href="#works" class="transition-colors hover:text-ink">作品</a>
         <a href="#about" class="transition-colors hover:text-ink">关于</a>
+        <RouterLink to="/template-import" class="transition-colors hover:text-ink">解析海报</RouterLink>
       </nav>
 
       <div class="flex items-center gap-6">
