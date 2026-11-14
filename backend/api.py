@@ -54,6 +54,9 @@ from template_store import (
     save_template as save_dynamic_template,
 )
 
+from auth import router as auth_router
+from db import init_db
+
 
 def _load_local_env() -> None:
     """手动运行 api.py 时也读取本地 .env；不覆盖已有的环境变量。"""
@@ -108,6 +111,10 @@ if POSTER_DESIGN_STATIC_DIR.is_dir():
         StaticFiles(directory=POSTER_DESIGN_STATIC_DIR),
         name="poster-design-static",
     )
+
+# 认证接口必须在 SPA 兜底路由之前注册，避免 /api/auth/* 被兜底返回 HTML。
+app.include_router(auth_router)
+init_db()
 
 
 def _public(path: Path) -> str:

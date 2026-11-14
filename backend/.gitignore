@@ -17,6 +17,8 @@ generated/
 output/
 data/*.csv
 data/*.json
+data/*.db
+data/*.sqlite3
 .uv-cache/
 
 # Local samples and optional libraries
