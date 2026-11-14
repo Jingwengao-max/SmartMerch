@@ -126,6 +126,29 @@ a {
   color: var(--color-ink-faint);
 }
 
+/* ── 弹窗内盒式输入框 ───────────────────────────── */
+/* 浅边框、轻阴影、圆角，与对谈式 field-input 区分，但共享同一 token 体系 */
+.input-box {
+  width: 100%;
+  border: 1px solid var(--color-warm-300);
+  background-color: rgba(255, 255, 255, 0.6);
+  border-radius: 0.5rem;
+  padding: 0.65rem 0.9rem;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--color-ink);
+  outline: none;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+.input-box:focus {
+  border-color: var(--color-sage);
+  background-color: #ffffff;
+}
+.input-box::placeholder {
+  color: var(--color-ink-faint);
+}
+
 /* 识别中的小圆点 */
 @keyframes pulse-dot {
   0%,
