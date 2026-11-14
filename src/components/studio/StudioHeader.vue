@@ -12,8 +12,11 @@ const { step } = useStudio()
       <p class="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-faint">已自动保存</p>
     </div>
 
-    <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-faint">
-      Step {{ step + 1 }} / 4
-    </p>
+    <div class="flex items-center gap-4">
+      <RouterLink to="/template-import" class="btn-link text-xs">解析参考海报</RouterLink>
+      <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-faint">
+        Step {{ step + 1 }} / 4
+      </p>
+    </div>
   </header>
 </template>

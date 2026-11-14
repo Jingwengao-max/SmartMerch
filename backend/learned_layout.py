@@ -8,9 +8,11 @@ import math
 import re
 import statistics
 import textwrap
+from itertools import combinations
 from pathlib import Path
 from typing import Any
 
+import jieba
 from PIL import Image, ImageDraw, ImageFilter
 
 from layout_engine import CANVAS, load_font
@@ -23,8 +25,8 @@ MODEL_PATH = ROOT / "models" / "bakery_editorial_layout.json"
 # 风格 → 版式模型文件列表。一个风格可以有多套版式（例如 4 张参考图各自不同）。
 STYLE_MODELS = {
     "editorial": ["bakery_editorial_layout.json"],
-    "minimal": ["minimal_layout.json"],
     "style2": [f"style2_layout_{index}.json" for index in range(1, 5)],
+    "retro": ["retro_layout.json"],
 }
 # 兼容旧调用：只取该风格的第一套版式。
 MODEL_FILES = {key: files[0] for key, files in STYLE_MODELS.items()}
@@ -73,6 +75,23 @@ def adaptive_palette(mean_rgb: tuple[int, int, int], paper: str = "#faf5ed") -> 
     }
 
 
+def retro_palette(mean_rgb: tuple[int, int, int]) -> dict[str, str]:
+    """保留复古明度关系，同时让主色相跟随商品。"""
+    red, green, blue = (value / 255 for value in mean_rgb)
+    hue, _, saturation = colorsys.rgb_to_hls(red, green, blue)
+    saturation = max(0.38, min(0.72, saturation * 1.08))
+    accent_rgb = colorsys.hls_to_rgb(hue, 0.43, saturation)
+    soft_rgb = colorsys.hls_to_rgb(hue, 0.60, min(0.82, saturation + 0.10))
+    dark_rgb = colorsys.hls_to_rgb(hue, 0.20, min(0.62, saturation * 0.86))
+    accent = tuple(round(value * 255) for value in accent_rgb)
+    cream = (247, 240, 223)
+    paper = tuple(round(cream[index] * 0.94 + accent[index] * 0.06) for index in range(3))
+    return {
+        "paper": _hex(paper),
+        "soft": _hex(tuple(round(value * 255) for value in soft_rgb)),
+        "accent": _hex(accent),
+        "dark": _hex(tuple(round(value * 255) for value in dark_rgb)),
+    }
 def _product_doodle(product: Image.Image, color: str, size: tuple[int, int]) -> Image.Image:
     """Convert the uploaded product silhouette into a compact line drawing."""
     alpha = product.convert("RGBA").getchannel("A")
@@ -119,6 +138,37 @@ def build_style_background(target: Path, palette: dict[str, str], product: Image
         draw = ImageDraw.Draw(image)
     organic = bool(style.get("organicBackdrop", True))
 
+    if style_key == "retro":
+        # 复古食品杂志：标题色带、商品轮廓纹样、斜切橙色版块与粗箭头。
+        draw.rectangle((58, 82, width - 58, 270), fill=palette["dark"])
+        draw.polygon(
+            [(0, round(height * 0.70)), (width, round(height * 0.49)), (width, height), (0, height)],
+            fill=palette["soft"],
+        )
+        draw.line((0, round(height * 0.70), width, round(height * 0.49)), fill=palette["dark"], width=4)
+        if product is not None:
+            motif = _product_doodle(product, palette["accent"], (145, 105))
+            for row, y in enumerate((310, 440, 570, 700)):
+                for column in range(4):
+                    x = 70 + column * 265 + (row % 2) * 70
+                    if x + motif.width >= width - 30:
+                        continue
+                    stamp = motif.rotate((-8, 5, -4, 8)[column], expand=True, resample=Image.Resampling.BICUBIC)
+                    faded = stamp.copy()
+                    faded.putalpha(faded.getchannel("A").point(lambda value: round(value * 0.58)))
+                    image.paste(faded, (x, y), faded)
+        arrow_x = width - 120
+        arrow_top, arrow_bottom = round(height * 0.62), round(height * 0.78)
+        draw.line((arrow_x, arrow_top, arrow_x, arrow_bottom), fill=palette["dark"], width=24)
+        draw.line((arrow_x, arrow_bottom, arrow_x - 46, arrow_bottom - 48), fill=palette["dark"], width=24)
+        draw.line((arrow_x, arrow_bottom, arrow_x + 46, arrow_bottom - 48), fill=palette["dark"], width=24)
+        if product is not None:
+            arrow_doodle = _product_doodle(product, palette["dark"], (150, 110)).rotate(
+                -6, expand=True, resample=Image.Resampling.BICUBIC,
+            )
+            doodle_x = round(arrow_x - arrow_doodle.width / 2)
+            doodle_y = arrow_bottom + 28
+            image.paste(arrow_doodle, (doodle_x, doodle_y), arrow_doodle)
     # The organic product backdrop and scalloped footer are the two strongest
     # non-textual patterns shared by all four references.
     if organic:
@@ -136,6 +186,7 @@ def build_style_background(target: Path, palette: dict[str, str], product: Image
             float(layout.get("productMinLeft", 0.0)),
             float(layout.get("productScale", 1.0)),
             float(layout.get("productShrink", 1.0)),
+            float(layout.get("productMinTop", 0.0)),
         )
         shadow = Image.new("RGBA", image.size, (0, 0, 0, 0))
         shadow_draw = ImageDraw.Draw(shadow)
@@ -336,13 +387,19 @@ def _darken(color: str, amount: float = 0.22) -> str:
 def _product_rect(model: dict[str, Any], product_size: tuple[int, int],
                   min_left_ratio: float = 0.0,
                   scale: float = 1.0,
-                  shrink: float = 1.0) -> tuple[int, int, int, int]:
+                  shrink: float = 1.0,
+                  min_top_ratio: float = 0.0) -> tuple[int, int, int, int]:
     px, py, pw, ph = _region(model, "product")
     min_left = round(CANVAS[0] * min_left_ratio)
     if min_left > px:
         # 商品整体限制在中轴线右侧，必要时等比缩小。
         px = min_left
         pw = max(1, CANVAS[0] - min_left)
+    min_top = round(CANVAS[1] * min_top_ratio)
+    if min_top > py:
+        bottom = py + ph
+        py = min_top
+        ph = max(1, bottom - py)
     source_ratio = product_size[0] / max(1, product_size[1])
     target_ratio = pw / ph
     if source_ratio > target_ratio:
@@ -364,6 +421,21 @@ def _product_rect(model: dict[str, Any], product_size: tuple[int, int],
     left = max(0, min(CANVAS[0] - render_w, left))
     top = max(0, min(CANVAS[1] - render_h, top))
     return (left, top, render_w, render_h)
+
+
+def _contained_rect(region: tuple[int, int, int, int],
+                    source_size: tuple[int, int]) -> tuple[int, int, int, int]:
+    """Fit an image inside a region without changing its aspect ratio."""
+    x, y, width, height = region
+    source_ratio = source_size[0] / max(1, source_size[1])
+    target_ratio = width / max(1, height)
+    if source_ratio > target_ratio:
+        render_width, render_height = width, round(width / source_ratio)
+    else:
+        render_height, render_width = height, round(height * source_ratio)
+    left = x + (width - render_width) // 2
+    top = y + (height - render_height) // 2
+    return (left, top, render_width, render_height)
 
 
 def _partition(tokens: list[str], parts: int) -> list[list[str]]:
@@ -393,23 +465,125 @@ def _partition(tokens: list[str], parts: int) -> list[list[str]]:
     return groups[::-1]
 
 
-def _split_title(text: str, line_count: int = 3) -> list[str]:
-    """按语义尽量均衡地拆行：英文按词、中文按字，短标题自动少拆。"""
+def _semantic_tokens(text: str) -> tuple[list[str], str]:
     cleaned = re.sub(r"\s+", " ", text).strip()
     if not cleaned:
+        return [], ""
+    if re.fullmatch(r"[\x00-\x7f ]+", cleaned):
+        return cleaned.split(" "), " "
+    return [token for token in jieba.lcut(cleaned) if token.strip()], ""
+
+
+def _visible_length(text: str) -> int:
+    return len(re.sub(r"[\s\W_]+", "", text, flags=re.UNICODE))
+
+
+def _split_fixed_title(text: str) -> list[str]:
+    """Apply the fixed 1-9 character headline distribution."""
+    compact = re.sub(r"\s+", "", text)
+    target_counts = {
+        1: (1,),
+        2: (2,),
+        3: (3,),
+        4: (2, 2),
+        5: (3, 2),
+        6: (3, 3),
+        7: (4, 3),
+        8: (4, 4),
+        9: (3, 3, 3),
+    }
+    characters = list(compact[:9])
+    if not characters:
         return []
-    if " " in cleaned:
-        tokens = cleaned.split(" ")
-        separator = " "
-    else:
-        tokens = [character for character in cleaned if not character.isspace()]
-        separator = ""
-    if len(tokens) <= 1:
-        return [cleaned]
-    # 尽量按要求行数拆；标题本身短于行数时按实际字数拆。
-    parts = min(line_count, len(tokens))
-    groups = _partition(tokens, parts)
-    return [separator.join(group) for group in groups if group]
+    counts = target_counts[len(characters)]
+    lines: list[str] = []
+    cursor = 0
+    for count in counts:
+        lines.append("".join(characters[cursor:cursor + count]))
+        cursor += count
+    return lines
+
+
+def _partition_semantic(tokens: list[str], max_lines: int, separator: str,
+                        prefer_fewest_lines: bool = False,
+                        max_line_chars: int | None = None) -> list[str]:
+    """按语义词块分行，且每一行字数不得少于其下方任意一行。"""
+    count = len(tokens)
+    if count <= 1:
+        return [separator.join(tokens)] if tokens else []
+
+    total = sum(_visible_length(token) for token in tokens)
+    target_lines = 1 if total <= 3 else 2 if total <= 5 else 3
+    target_lines = min(target_lines, max_lines, count)
+    best: tuple[float, int, list[str]] | None = None
+
+    for line_count in range(1, min(max_lines, count) + 1):
+        for cuts in combinations(range(1, count), line_count - 1):
+            boundaries = (0, *cuts, count)
+            groups = [tokens[boundaries[i]:boundaries[i + 1]] for i in range(line_count)]
+            lines = [separator.join(group) for group in groups]
+            lengths = [_visible_length(line) for line in lines]
+            if any(length <= 0 for length in lengths):
+                continue
+            if max_line_chars is not None and any(length > max_line_chars for length in lengths):
+                continue
+            # 硬约束：下行字数不能超过上行。
+            if any(lengths[index] < lengths[index + 1] for index in range(len(lengths) - 1)):
+                continue
+
+            short_line_penalty = sum(
+                80 for length in lengths if line_count > 1 and length == 1
+            )
+            imbalance = (lengths[0] - lengths[-1]) * 3 + sum(
+                abs(lengths[index] - lengths[index + 1])
+                for index in range(len(lengths) - 1)
+            )
+            line_count_penalty = (
+                line_count * 10_000
+                if prefer_fewest_lines
+                else abs(line_count - target_lines) * 120
+            )
+            score = line_count_penalty + imbalance + short_line_penalty
+            candidate = (score, line_count, lines)
+            if best is None or candidate < best:
+                best = candidate
+
+    if best:
+        return best[2]
+
+    # Only reachable when a single semantic token exceeds the line limit.
+    tokens_per_line = max(1, math.ceil(count / max_lines))
+    return [
+        separator.join(tokens[index:index + tokens_per_line])
+        for index in range(0, count, tokens_per_line)
+    ][:max_lines]
+
+
+def _split_title(text: str, line_count: int = 3,
+                 prefer_fewest_lines: bool = False,
+                 max_line_chars: int | None = None) -> list[str]:
+    """按语义和原始顺序分行，并保证行字数自上而下不增加。"""
+    explicit_lines = [line.strip() for line in text.splitlines() if line.strip()]
+    explicit_lengths = [_visible_length(line) for line in explicit_lines]
+    if (
+        len(explicit_lines) > 1
+        and len(explicit_lines) <= line_count
+        and (
+            max_line_chars is None
+            or all(length <= max_line_chars for length in explicit_lengths)
+        )
+        and all(
+            explicit_lengths[index] >= explicit_lengths[index + 1]
+            for index in range(len(explicit_lengths) - 1)
+        )
+        and not prefer_fewest_lines
+    ):
+        return explicit_lines[:line_count]
+
+    tokens, separator = _semantic_tokens(re.sub(r"\s+", " ", text).strip())
+    return _partition_semantic(
+        tokens, line_count, separator, prefer_fewest_lines, max_line_chars,
+    )
 
 
 def _fit_lines(lines: list[str], rect: tuple[int, int, int, int],
@@ -428,6 +602,88 @@ def _fit_lines(lines: list[str], rect: tuple[int, int, int, int],
     return 14, round(14 * 1.12), 0.0
 
 
+def _auto_fit_text(text: str, rect: tuple[int, int, int, int], start: int, minimum: int,
+                   weight: int, family: str | None, max_lines: int) -> tuple[str, int, int]:
+    """优先保持单行；空间不足时再按词义均衡拆行，最多 max_lines 行。"""
+    probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    cleaned = re.sub(r"\s+", " ", text).strip()
+    for line_count in range(1, max(1, max_lines) + 1):
+        lines = _split_title(cleaned, line_count)
+        for size in range(start, minimum - 1, -2):
+            font = load_font(size, weight, family)
+            line_height = round(size * 1.05)
+            widths = [probe.textlength(line, font=font) for line in lines]
+            if max(widths or [0]) <= rect[2] * 0.96 and line_height * len(lines) <= rect[3] * 0.96:
+                return "\n".join(lines), size, line_height
+    lines = _split_title(cleaned, max(1, max_lines))
+    return "\n".join(lines), minimum, round(minimum * 1.05)
+
+
+def _fit_flow_lines(lines: list[str], rect: tuple[int, int, int, int],
+                    start: int, minimum: int, weight: int, family: str | None,
+                    max_width: int, max_height: int,
+                    line_height_ratio: float = 1.08) -> tuple[int, int]:
+    """同时约束文字块的宽度和高度，字号随行数与最长行自动缩放。"""
+    probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    usable_width = min(rect[2], max_width) * 0.96
+    low, high = max(1, minimum), max(1, start)
+    best_size = max(1, minimum)
+    best_line_height = max(1, round(minimum * line_height_ratio))
+    while low <= high:
+        size = (low + high) // 2
+        font = load_font(size, weight, family)
+        widths = [probe.textlength(line, font=font) for line in lines]
+        line_height = max(1, round(size * line_height_ratio))
+        block_height = (len(lines) - 1) * line_height + size
+        if max(widths or [0]) <= usable_width and block_height <= max_height:
+            best_size = size
+            best_line_height = line_height
+            low = size + 1
+        else:
+            high = size - 1
+    return best_size, best_line_height
+
+
+def layout_fixed_title(text: str, frame_width: int, start: int = 420,
+                       minimum: int = 100, weight: int = 900,
+                       family: str | None = "hei", max_height: int = 752,
+                       line_height_ratio: float = 1.08,
+                       two_line_height_ratio: float = 1.18) -> dict[str, Any]:
+    """Lay out a title independently from the full poster pipeline."""
+    compact = re.sub(r"\s+", "", text)[:9]
+    lines = _split_fixed_title(compact)
+    if not lines:
+        return {
+            "content": "", "lines": [], "fontSize": minimum,
+            "lineHeight": 0, "lineSpacings": [], "lineAlignments": [],
+        }
+    rect = (0, 0, frame_width, max_height)
+    effective_ratio = two_line_height_ratio if len(lines) == 2 else line_height_ratio
+    font_size, line_height = _fit_flow_lines(
+        lines, rect, start, minimum, weight, family,
+        frame_width, max_height, effective_ratio,
+    )
+    measure_font = load_font(font_size, weight, family)
+    probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    line_spacings = []
+    line_alignments = ["justify"] * len(lines)
+    for line in lines:
+        gaps = max(1, len(line) - 1)
+        line_width = probe.textlength(line, font=measure_font)
+        line_spacings.append(round(max(0.0, (frame_width - line_width) / gaps), 2))
+    if len(lines) == 2 and len(compact) in {5, 7}:
+        line_alignments[1] = "left"
+        line_spacings[1] = 0.0
+    return {
+        "content": "\n".join(lines),
+        "lines": lines,
+        "fontSize": font_size,
+        "lineHeight": line_height,
+        "lineSpacings": line_spacings,
+        "lineAlignments": line_alignments,
+    }
+
+
 def create_document(job_id: str, product_url: str, background_url: str,
                     product_size: tuple[int, int], mean_rgb: tuple[int, int, int],
                     copy: dict[str, Any], style: str = "editorial",
@@ -439,11 +695,14 @@ def create_document(job_id: str, product_url: str, background_url: str,
     layout = spec.get("layout") or {}
     style_flags = model.get("style", {})
     palette = adaptive_palette(mean_rgb)
+    if style == "retro":
+        palette = retro_palette(mean_rgb)
     product_rect = _product_rect(
         model, product_size,
         float(layout.get("productMinLeft", 0.0)),
         float(layout.get("productScale", 1.0)),
         float(layout.get("productShrink", 1.0)),
+        float(layout.get("productMinTop", 0.0)),
     )
 
     oversized = bool(style_flags.get("oversizedHeadline", True))
@@ -454,7 +713,33 @@ def create_document(job_id: str, product_url: str, background_url: str,
             "height": product_rect[3], "rotation": 0, "zIndex": 2,
         },
     ]
+    reflection_region = layout.get("reflectionRegion")
+    if style == "style2" and variant_index == 3 and reflection_region in model.get("regions", {}):
+        reflection_rect = _contained_rect(_region(model, reflection_region), product_size)
+        elements.append({
+            "id": "product-reflection", "type": "image", "role": "product-reflection",
+            "src": product_url, "x": reflection_rect[0], "y": reflection_rect[1],
+            "width": reflection_rect[2], "height": reflection_rect[3],
+            "rotation": 0, "zIndex": 1,
+            "opacity": float(layout.get("reflectionOpacity", 0.18)),
+            "blur": int(layout.get("reflectionBlur", 22)),
+            "flipX": True, "flipY": True,
+        })
     point_rects: dict[str, list[tuple[int, int, int, int]]] = {}
+
+    if style == "retro" and "year" in model.get("regions", {}):
+        year_rect = _region(model, "year")
+        elements.append({
+            "id": "year-panel", "type": "shape", "role": "panel", "shape": "rect",
+            "fill": palette["dark"], "opacity": 1, "radius": year_rect[3] // 2,
+            "x": year_rect[0], "y": year_rect[1], "width": year_rect[2], "height": year_rect[3],
+            "rotation": 0, "zIndex": 3,
+        })
+        elements.append(_text_element(
+            "year", "badge", "2026", year_rect,
+            _single_line_font_size("2026", year_rect[2] - 20, 48, 28, 900),
+            palette["paper"], z_index=4, weight=900, align="center", vertical_align="middle",
+        ))
 
     for field in spec["fields"]:
         key = field["key"]
@@ -486,6 +771,9 @@ def create_document(job_id: str, product_url: str, background_url: str,
             continue
         if field["kind"] == "text":
             content = str(raw or "").strip() or spec["defaults"].get(key, "")
+            max_chars = int(field.get("maxChars", 0))
+            if max_chars:
+                content = content[:max_chars]
             if not content:
                 continue
             if not field.get("wrap") and not field.get("lines"):
@@ -508,10 +796,41 @@ def create_document(job_id: str, product_url: str, background_url: str,
             family = field.get("fontFamily")
             font_spec = field["font"]
             extras: dict[str, Any] = {}
-            if field.get("lines"):
-                lines = _split_title(content, int(field["lines"]))
-                content = "\n".join(lines)
-                if field.get("fillBox"):
+            if field.get("autoLines"):
+                start, minimum = font_spec if isinstance(font_spec, (list, tuple)) else (font_spec, font_spec)
+                content, font_size, line_height = _auto_fit_text(
+                    content, rect, int(start), int(minimum), weight, family, int(field["autoLines"]),
+                )
+                extras["lineHeight"] = line_height
+            elif field.get("lines"):
+                fixed_layout: dict[str, Any] | None = None
+                if field.get("fixedTitleLines"):
+                    start, minimum = (
+                        font_spec
+                        if isinstance(font_spec, (list, tuple))
+                        else (font_spec, font_spec)
+                    )
+                    fixed_layout = layout_fixed_title(
+                        content,
+                        frame_width=rect[2],
+                        start=int(start),
+                        minimum=int(minimum),
+                        weight=weight,
+                        family=family,
+                        max_height=int(field.get("maxBlockHeight", rect[3])),
+                        line_height_ratio=float(field.get("lineHeightRatio", 1.08)),
+                        two_line_height_ratio=float(field.get("twoLineHeightRatio", 1.18)),
+                    )
+                    content = fixed_layout["content"]
+                    lines = fixed_layout["lines"]
+                    font_size = int(fixed_layout["fontSize"])
+                    extras["lineHeight"] = int(fixed_layout["lineHeight"])
+                    extras["lineSpacings"] = fixed_layout["lineSpacings"]
+                    extras["lineAlignments"] = fixed_layout["lineAlignments"]
+                else:
+                    lines = _split_title(content, int(field["lines"]))
+                    content = "\n".join(lines)
+                if fixed_layout is None and field.get("fillBox"):
                     font_size, line_height, spacing = _fit_lines(lines, rect, weight, family)
                     font_scale = float(field.get("fontScale", 1.0))
                     if font_scale != 1.0:
@@ -519,10 +838,36 @@ def create_document(job_id: str, product_url: str, background_url: str,
                         line_height = round(line_height * font_scale)
                     extras["lineHeight"] = line_height
                     extras["letterSpacing"] = spacing
-                else:
+                elif fixed_layout is None and field.get("flowFit"):
+                    start, minimum = (
+                        font_spec
+                        if isinstance(font_spec, (list, tuple))
+                        else (font_spec, font_spec)
+                    )
+                    font_size, line_height = _fit_flow_lines(
+                        lines, rect, int(start), int(minimum), weight, family,
+                        int(field.get("maxBlockWidth", rect[2])),
+                        int(field.get("maxBlockHeight", rect[3])),
+                        float(field.get("lineHeightRatio", 1.08)),
+                    )
+                    extras["lineHeight"] = line_height
+                elif fixed_layout is None:
                     longest = max(lines, key=len) if lines else content
                     start, minimum = font_spec if isinstance(font_spec, (list, tuple)) else (font_spec, font_spec)
                     font_size = _single_line_font_size(longest, rect[2], int(start), int(minimum), weight)
+                if field.get("lineHeight"):
+                    extras["lineHeight"] = max(font_size, int(field["lineHeight"]))
+                if fixed_layout is None and field.get("justifyLines"):
+                    measure_font = load_font(font_size, weight, family)
+                    probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+                    line_spacings = []
+                    for line in lines:
+                        gaps = max(1, len(line) - 1)
+                        line_width = probe.textlength(line, font=measure_font)
+                        line_spacings.append(
+                            round(max(0.0, (rect[2] - line_width) / gaps), 2)
+                        )
+                    extras["lineSpacings"] = line_spacings
             elif isinstance(font_spec, (list, tuple)):
                 start, minimum = font_spec
                 if "compactFont" in field and not oversized:
@@ -574,7 +919,7 @@ def create_document(job_id: str, product_url: str, background_url: str,
                 elements.append({
                     "id": f"{field.get('id', key)}-panel",
                     "type": "shape", "role": "panel", "shape": "rect",
-                    "fill": panel.get("fill", "#ffffff"),
+                    "fill": _resolve_color(panel.get("fill", "#ffffff"), palette),
                     "opacity": float(panel.get("opacity", 0.55)),
                     "radius": int(panel.get("radius", 16)),
                     "x": panel_x,
@@ -602,6 +947,14 @@ def create_document(job_id: str, product_url: str, background_url: str,
             if family:
                 element["fontFamily"] = family
             element.update(extras)
+            if field.get("lines") and not field.get("fillBox"):
+                # Text elements should report their real visual block instead of
+                # the full template region, so overlap checks and editor bounds
+                # reflect what readers actually see.
+                line_height = int(extras.get("lineHeight") or round(font_size * 1.18))
+                element["height"] = min(
+                    rect[3], (len(lines) - 1) * line_height + font_size,
+                )
             emboss = field.get("emboss")
             if emboss:
                 offset = int(emboss.get("offset", 6))
@@ -617,7 +970,11 @@ def create_document(job_id: str, product_url: str, background_url: str,
             elements.append(element)
             continue
 
-        points = [str(item).strip() for item in (raw or []) if str(item).strip()]
+        max_chars = int(field.get("maxChars", 0))
+        points = [
+            str(item).strip()[:max_chars] if max_chars else str(item).strip()
+            for item in (raw or []) if str(item).strip()
+        ]
         points = points[: int(field.get("maxItems", 3))]
         layouts = field["layouts"].get(len(points), [])
         rects = [_region(model, layout[0]) for layout in layouts]
@@ -644,10 +1001,17 @@ def create_document(job_id: str, product_url: str, background_url: str,
                     "width": rect[2] + glow_pad * 2, "height": rect[3] + glow_pad * 2,
                     "rotation": 0, "zIndex": max(0, int(field.get("zIndex", 4)) - 1),
                 })
+            point_text = _wrap_copy(points[index], int(wrap_chars), int(max_lines))
+            actual_font_size = int(font_size)
+            if field.get("singleLine"):
+                point_text = re.sub(r"\s+", " ", points[index]).strip()
+                actual_font_size = _single_line_font_size(
+                    point_text, rect[2], int(font_size), int(field.get("minFont", 18)),
+                    int(field.get("weight", 700)),
+                )
             point_element = _text_element(
-                f"{key}-{index + 1}", field.get("role", key),
-                _wrap_copy(points[index], int(wrap_chars), int(max_lines)),
-                rect, int(font_size),
+                f"{key}-{index + 1}", field.get("role", key), point_text,
+                rect, actual_font_size,
                 _resolve_color(field.get("color", "dark"), palette),
                 z_index=int(field.get("zIndex", 4)),
                 weight=int(field.get("weight", 700)),
@@ -682,8 +1046,8 @@ def create_document(job_id: str, product_url: str, background_url: str,
     return {
         "id": f"{job_id}_learned_{variant_index}",
         "name": (
-            f"AI 学习版式 · {spec['label']} · 版式 {variant_index + 1}"
-            if variant_count > 1 else f"AI 学习版式 · {spec['label']}"
+            f"{spec['label']} · 版式 {variant_index + 1}"
+            if variant_count > 1 else spec["label"]
         ),
         "productName": product_name,
         "templateId": spec.get("templateId", f"learned-{style}-v1"),

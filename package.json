@@ -7,11 +7,19 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "vue-tsc --noEmit"
+    "typecheck": "vue-tsc --noEmit",
+    "test:title": "cd backend && ..\\.venv\\Scripts\\python.exe -m unittest -v test_title_layout.py",
+    "test:templates": "cd backend && ..\\.venv\\Scripts\\python.exe -m unittest -v test_poster_analyzer.py test_template_compiler.py test_template_instantiate.py test_template_store.py"
   },
   "dependencies": {
+    "@fontsource/long-cang": "^5.3.0",
     "@fontsource/lxgw-wenkai": "^5.3.0",
+    "@fontsource/ma-shan-zheng": "^5.3.1",
     "@fontsource/noto-sans-sc": "^5.3.0",
+    "@fontsource/noto-serif-sc": "^5.3.1",
+    "@fontsource/zcool-kuaile": "^5.3.0",
+    "@fontsource/zcool-qingke-huangyou": "^5.3.0",
+    "@fontsource/zcool-xiaowei": "^5.3.0",
     "vue": "^3.5.43",
     "vue-router": "^5.3.1"
   },

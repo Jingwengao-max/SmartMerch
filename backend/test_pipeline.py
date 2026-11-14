@@ -4,8 +4,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
+from font_catalog import FONT_CATALOG, public_font_catalog, resolve_font_path
 from layout_engine import extract_product_features, load_templates, make_candidate
 from main import cutout, render
 from poster_design_adapter import normalize_template
@@ -14,6 +15,43 @@ from quality_evaluator import evaluate_document
 
 
 class PosterPipelineTests(unittest.TestCase):
+    def test_cloud_persistence_is_optional(self):
+        from cloud_persistence import cloud_persistence_configured, save_job
+
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(cloud_persistence_configured())
+            self.assertFalse(save_job({"job_id": "local", "status": "complete"}))
+
+    def test_cloud_persistence_accepts_current_supabase_secret_key(self):
+        from cloud_persistence import save_job
+
+        response = Mock()
+        response.raise_for_status.return_value = None
+        with patch.dict(os.environ, {
+            "SUPABASE_URL": "https://project.supabase.co",
+            "SUPABASE_SECRET_KEY": "sb_secret_server-only",
+        }, clear=True), patch("cloud_persistence.requests.post", return_value=response) as post:
+            self.assertTrue(save_job({"job_id": "cloud", "status": "complete"}))
+
+        headers = post.call_args.kwargs["headers"]
+        self.assertEqual(headers["apikey"], "sb_secret_server-only")
+        self.assertNotIn("Authorization", headers)
+
+    def test_bundled_font_catalog_is_renderable_and_portable(self):
+        from layout_engine import load_font
+
+        catalog = public_font_catalog()
+        self.assertEqual(len(catalog), len(FONT_CATALOG))
+        self.assertEqual(len({item["id"] for item in catalog}), len(catalog))
+        for font_id in FONT_CATALOG:
+            path = resolve_font_path(font_id, 700)
+            self.assertTrue(path.is_file(), path)
+            font = load_font(32, 700, font_id)
+            left, top, right, bottom = font.getbbox("海报")
+            self.assertGreater(right - left, 0)
+            self.assertGreater(bottom - top, 0)
+        self.assertIn("noto-sans", resolve_font_path("hei").name)
+
     def test_translation_reuses_unified_ai_configuration(self):
         from ai_copywriter import translate_with_ai
 
@@ -53,44 +91,173 @@ class PosterPipelineTests(unittest.TestCase):
         self.assertNotIn("title", option)
         self.assertEqual(option["subtitle"], "草莓奶油丹麦")
         self.assertEqual(len(option["sellingPoints"]), 3)
+        self.assertTrue(all(len(point) <= 10 for point in option["sellingPoints"]))
         self.assertEqual(option["launchText"], "新品上市")
 
     def test_style_models_are_registered_and_distinct(self):
         from learned_layout import MODEL_FILES, load_model_for
 
         self.assertIn("editorial", MODEL_FILES)
-        self.assertIn("minimal", MODEL_FILES)
+        self.assertIn("style2", MODEL_FILES)
+        self.assertIn("retro", MODEL_FILES)
+        self.assertNotIn("minimal", MODEL_FILES)
         editorial = load_model_for("editorial")
-        minimal = load_model_for("minimal")
+        retro = load_model_for("retro")
         self.assertEqual(editorial["style"]["name"], "bakery-editorial")
-        self.assertEqual(minimal["style"]["name"], "minimal")
-        self.assertNotEqual(editorial["regions"]["product"], minimal["regions"]["product"])
-        self.assertFalse(minimal["style"]["organicBackdrop"])
+        self.assertEqual(retro["style"]["name"], "retro")
+        self.assertNotEqual(editorial["regions"]["product"], retro["regions"]["product"])
+        with self.assertRaises(ValueError):
+            load_model_for("minimal")
         with self.assertRaises(ValueError):
             load_model_for("does-not-exist")
-
     def test_create_document_uses_style_regions(self):
         from learned_layout import create_document
 
-        common = dict(
-            mean_rgb=(200, 120, 140),
-            product_size=(500, 700),
-        )
+        common = dict(mean_rgb=(200, 120, 140), product_size=(500, 700))
         editorial = create_document(
             "job-a", "/p.png", "/bg.jpg", **common,
             copy={"title": "Test Product", "subtitle": "测试商品",
                   "sellingPoints": ["卖点一", "卖点二"], "footer": "品牌口号"},
             style="editorial",
         )
-        minimal = create_document(
+        retro = create_document(
             "job-b", "/p.png", "/bg.jpg", **common,
-            copy={"title": "Test Product", "subtitle": "测试商品",
-                  "sellingPoints": ["卖点一", "卖点二"], "footer": "品牌口号"},
-            style="minimal",
+            copy={"title": "TEST PRODUCT", "subtitle": "测试商品",
+                  "slogan": "简洁口号", "feature": "清晰卖点"},
+            style="retro",
         )
         product_a = next(item for item in editorial["elements"] if item["role"] == "product")
-        product_b = next(item for item in minimal["elements"] if item["role"] == "product")
+        product_b = next(item for item in retro["elements"] if item["role"] == "product")
         self.assertNotEqual((product_a["x"], product_a["y"]), (product_b["x"], product_b["y"]))
+
+        magazine = create_document(
+            "job-c", "/p.png", "/bg.jpg", **common,
+            copy={"title": "TEST", "subtitle": "测试商品",
+                  "sellingPoints": ["这是一条超过十个字的卖点文案"]}, style="editorial",
+        )
+        magazine_point = next(item for item in magazine["elements"] if item.get("role") == "sellingPoint")
+        self.assertLessEqual(len(magazine_point["content"]), 10)
+        self.assertNotIn("\n", magazine_point["content"])
+    @unittest.skip("Title tests live in test_title_layout.py")
+    def test_style2_first_title_keeps_strict_row_major_flow(self):
+        from learned_layout import create_document, load_models_for
+
+        model = load_models_for("style2")[0]
+        for title in (
+            "云台", "高清云台", "智能高清云台", "智能高清云台摄像机",
+            "桌面式智能摄像设备", "专业级智能高清云摄",
+        ):
+            with self.subTest(title=title):
+                document = create_document(
+                    job_id="style2-title",
+                    product_url="/product.png",
+                    background_url="/background.jpg",
+                    product_size=(600, 800),
+                    mean_rgb=(150, 180, 180),
+                    copy={
+                        "name": title,
+                        "slogan": "广角覆盖无死角\n精准追踪不偏移",
+                        "intro": "固定的商品介绍文字。",
+                        "sellingPoints": ["广角镜头", "智能追踪", "稳定画面"],
+                    },
+                    style="style2",
+                    model=model,
+                    variant_index=0,
+                    variant_count=4,
+                )
+                heading = next(item for item in document["elements"] if item["id"] == "product-name")
+                product = next(item for item in document["elements"] if item["role"] == "product")
+                lines = heading["content"].splitlines()
+                line_lengths = [len(line) for line in lines]
+
+                self.assertEqual("".join(lines), title)
+                self.assertLessEqual(len(lines), 3)
+                self.assertEqual(line_lengths, sorted(line_lengths, reverse=True))
+                self.assertEqual((heading["textAlign"], heading["verticalAlign"]), ("left", "top"))
+                self.assertGreater(heading["zIndex"], product["zIndex"])
+                self.assertLessEqual(heading["y"] + heading["height"], product["y"])
+                self.assertEqual(heading["height"], heading["lineHeight"] * len(lines))
+                self.assertGreaterEqual(heading["fontSize"], 100)
+                expected_counts = {
+                    1: [1], 2: [2], 3: [3], 4: [2, 2], 5: [3, 2],
+                    6: [3, 3], 7: [4, 3], 8: [4, 4], 9: [3, 3, 3],
+                }[len(title)]
+                self.assertEqual(line_lengths, expected_counts)
+                self.assertEqual(len(heading["lineSpacings"]), len(lines))
+                self.assertTrue(all(value >= 0 for value in heading["lineSpacings"]))
+                from layout_engine import load_font
+                probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+                font = load_font(heading["fontSize"], heading["fontWeight"], heading.get("fontFamily"))
+                for line, spacing in zip(lines, heading["lineSpacings"]):
+                    if len(line) <= 1:
+                        continue
+                    span = probe.textlength(line, font=font) + spacing * (len(line) - 1)
+                    self.assertAlmostEqual(span, heading["width"], delta=2)
+
+    @unittest.skip("Title tests live in test_title_layout.py")
+    def test_style2_title_fixed_distribution_and_semantic_tokens(self):
+        from learned_layout import _semantic_tokens, _split_fixed_title
+
+        expected = {
+            1: [1], 2: [2], 3: [3], 4: [2, 2], 5: [3, 2],
+            6: [3, 3], 7: [4, 3], 8: [4, 4], 9: [3, 3, 3],
+        }
+        source = "桌面式智能摄像设备"
+        for length, counts in expected.items():
+            with self.subTest(length=length):
+                title = source[:length]
+                lines = _split_fixed_title(title)
+                self.assertEqual([len(line) for line in lines], counts)
+                self.assertEqual("".join(lines), title)
+                self.assertEqual(
+                    [len(line) for line in lines],
+                    sorted((len(line) for line in lines), reverse=True),
+                )
+        self.assertEqual(
+            _semantic_tokens(source),
+            (["桌面式", "智能", "摄像", "设备"], ""),
+        )
+
+    @unittest.skip("Title tests live in test_title_layout.py")
+    def test_style2_title_is_limited_to_nine_characters(self):
+        from learned_layout import create_document, load_models_for
+
+        title = "桌面式智能超高清摄像设备"
+        document = create_document(
+            job_id="style2-long-title",
+            product_url="/product.png",
+            background_url="/background.jpg",
+            product_size=(600, 800),
+            mean_rgb=(150, 180, 180),
+            copy={"name": title, "slogan": "清晰稳定\n广角追踪", "intro": "商品介绍。", "sellingPoints": []},
+            style="style2",
+            model=load_models_for("style2")[0],
+            variant_index=0,
+            variant_count=4,
+        )
+        heading = next(item for item in document["elements"] if item["id"] == "product-name")
+        self.assertEqual(heading["content"].replace("\n", ""), title[:9])
+        self.assertEqual([len(line) for line in heading["content"].splitlines()], [3, 3, 3])
+
+    @unittest.skip("Title tests live in test_title_layout.py")
+    def test_style2_slogan_preserves_explicit_line_order(self):
+        from learned_layout import create_document, load_models_for
+
+        slogan = "新鲜直达\n美味随行"
+        document = create_document(
+            job_id="style2-slogan",
+            product_url="/product.png",
+            background_url="/background.jpg",
+            product_size=(600, 800),
+            mean_rgb=(150, 180, 180),
+            copy={"name": "精品礼盒", "slogan": slogan, "intro": "商品介绍。", "sellingPoints": []},
+            style="style2",
+            model=load_models_for("style2")[0],
+            variant_index=0,
+            variant_count=4,
+        )
+        element = next(item for item in document["elements"] if item["id"] == "slogan")
+        self.assertEqual(element["content"], slogan)
 
     def test_transparent_input_and_layout(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -146,6 +313,98 @@ class PosterPipelineTests(unittest.TestCase):
         self.assertEqual(len(selling_points), 3)
         self.assertNotIn("footer-values", {item["id"] for item in document["elements"]})
         self.assertIn("accent", adaptive_palette((215, 95, 110)))
+
+    def test_retro_style_has_adaptive_palette_and_copy(self):
+        from learned_layout import build_style_background, create_document, load_model_for
+
+        document = create_document(
+            "retro-job", "/product.png", "/background.jpg",
+            product_size=(600, 500), mean_rgb=(30, 150, 220),
+            copy={
+                "subtitle": "开心果可颂", "title": "A CROISSANT",
+                "slogan": "层层起酥 奶香浓郁", "feature": "无添加、真材实料",
+                "sellingPoints": ["金黄酥脆", "黄油醇香", "轻盈多层"],
+                "year": "2026", "badgeText": "VOL.09",
+                "footer": "QUALITY INGREDIENTS · MADE WITH CARE",
+            },
+            style="retro",
+        )
+        self.assertEqual(document["templateId"], "retro-food-poster-v1")
+        self.assertNotEqual(document["palette"]["accent"], "#c64c22")
+        warm_document = create_document(
+            "retro-warm", "/product.png", "/background.jpg",
+            product_size=(600, 500), mean_rgb=(220, 110, 35),
+            copy={"subtitle": "暖色商品", "title": "WARM PRODUCT"}, style="retro",
+        )
+        self.assertNotEqual(document["palette"]["accent"], warm_document["palette"]["accent"])
+        self.assertEqual(document["productName"], "开心果可颂")
+        self.assertTrue(any(item.get("id") == "feature-panel" for item in document["elements"]))
+        year = next(item for item in document["elements"] if item.get("id") == "year")
+        self.assertEqual(year["content"], "2026")
+        self.assertFalse(any(item.get("id") == "issue" for item in document["elements"]))
+        self.assertFalse(any(item.get("role") == "sellingPoint" for item in document["elements"]))
+        from style_specs import STYLE_SPECS
+        self.assertEqual(
+            [field["key"] for field in STYLE_SPECS["retro"]["fields"]],
+            ["subtitle", "title", "slogan", "feature", "footer"],
+        )
+        product_layer = next(item for item in document["elements"] if item.get("role") == "product")
+        product_box = (product_layer["x"], product_layer["y"],
+                       product_layer["x"] + product_layer["width"],
+                       product_layer["y"] + product_layer["height"])
+        for item in (layer for layer in document["elements"] if layer.get("type") == "text"):
+            text_box = (item["x"], item["y"], item["x"] + item["width"], item["y"] + item["height"])
+            overlaps = not (
+                text_box[2] <= product_box[0] or text_box[0] >= product_box[2]
+                or text_box[3] <= product_box[1] or text_box[1] >= product_box[3]
+            )
+            self.assertFalse(overlaps, f"文案 {item['id']} 不应覆盖商品")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            product = Image.new("RGBA", (320, 180), (0, 0, 0, 0))
+            product.paste((220, 140, 60, 255), (30, 30, 290, 150))
+            background = Path(temporary) / "retro.jpg"
+            build_style_background(
+                background, document["palette"], product, load_model_for("retro"), style_key="retro",
+            )
+            self.assertTrue(background.is_file())
+            rendered = Image.open(background)
+            self.assertEqual(rendered.size, (1080, 1440))
+            self.assertLess(rendered.getpixel((80, 100))[0], 160)
+
+    def test_style2_fourth_variant_has_flipped_blurred_reflection(self):
+        from learned_layout import create_document, load_models_for
+
+        model = load_models_for("style2")[3]
+        document = create_document(
+            job_id="style2-reflection",
+            product_url="/product.png",
+            background_url="/background.jpg",
+            product_size=(600, 800),
+            mean_rgb=(150, 180, 180),
+            copy={
+                "name": "桌面式智能摄像设备",
+                "slogan": "清晰稳定",
+                "intro": "商品介绍。",
+                "sellingPoints": ["广角", "智能", "稳定"],
+            },
+            style="style2",
+            model=model,
+            variant_index=3,
+            variant_count=4,
+        )
+        reflection = next(
+            item for item in document["elements"] if item["role"] == "product-reflection"
+        )
+        product = next(item for item in document["elements"] if item["role"] == "product")
+        self.assertEqual(reflection["src"], "/product.png")
+        self.assertTrue(reflection["flipX"])
+        self.assertTrue(reflection["flipY"])
+        self.assertLess(reflection["opacity"], 0.3)
+        self.assertGreater(reflection["blur"], 0)
+        self.assertLess(reflection["x"] + reflection["width"], document["canvas"]["width"] / 2)
+        self.assertGreater(reflection["y"], document["canvas"]["height"] / 2)
+        self.assertLess(reflection["zIndex"], product["zIndex"])
 
     def test_quality_evaluator_detects_overlap(self):
         document = {

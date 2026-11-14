@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "analysisId": "analysis_sample_001",
+  "imageId": "sample_reference",
+  "canvas": {
+    "width": 1080,
+    "height": 1440
+  },
+  "style": {
+    "category": "复古",
+    "palette": ["#f7f0df", "#c64c22", "#6f2416"],
+    "tone": "温暖"
+  },
+  "generationPrompt": "复古食品海报，暖色纸张纹理，商品居中偏右，左侧保留大标题区域，柔和侧光，少量烘焙原料装饰，不要生成文字、Logo、水印或额外商品",
+  "background": {
+    "mode": "image",
+    "sourceImageId": "sample_reference",
+    "cleanupMasks": [
+      [0.08, 0.06, 0.7, 0.14]
+    ]
+  },
+  "observations": [
+    {
+      "id": "title",
+      "type": "text",
+      "role": "title",
+      "text": "秋日新品",
+      "bbox": [0.08, 0.06, 0.7, 0.14],
+      "rotation": 0,
+      "zIndex": 5,
+      "opacity": 0.85,
+      "confidence": 0.96,
+      "field": {
+        "key": "title",
+        "label": "主标题",
+        "required": true,
+        "maxChars": 12,
+        "maxLines": 2
+      },
+      "style": {
+        "fontId": "serif",
+        "fontSize": 108,
+        "fontWeight": 900,
+        "color": "#6f2416",
+        "textAlign": "center"
+      },
+      "constraints": {
+        "safeBBox": [0.05, 0.03, 0.78, 0.2],
+        "minFontSize": 48,
+        "maxFontSize": 150,
+        "allowWrap": true,
+        "allowMove": false,
+        "priority": 10
+      }
+    },
+    {
+      "id": "product",
+      "type": "image",
+      "role": "product",
+      "bbox": [0.24, 0.28, 0.56, 0.46],
+      "zIndex": 3,
+      "confidence": 0.93,
+      "assetId": "reference_product",
+      "constraints": {
+        "safeBBox": [0.18, 0.24, 0.64, 0.52],
+        "allowMove": false,
+        "priority": 9
+      }
+    },
+    {
+      "id": "feature",
+      "type": "text",
+      "role": "sellingPoint",
+      "text": "真材实料 风味浓郁",
+      "bbox": [0.16, 0.8, 0.6, 0.065],
+      "zIndex": 6,
+      "confidence": 0.71,
+      "reviewRequired": true,
+      "field": {
+        "key": "feature",
+        "label": "核心卖点",
+        "required": true,
+        "maxChars": 18,
+        "maxLines": 1
+      },
+      "style": {
+        "fontId": "sans",
+        "fontSize": 46,
+        "fontWeight": 800,
+        "color": "#6f2416",
+        "textAlign": "center"
+      }
+    },
+    {
+      "id": "footer",
+      "type": "text",
+      "role": "footer",
+      "text": "QUALITY INGREDIENTS",
+      "bbox": [0.12, 0.92, 0.76, 0.05],
+      "zIndex": 4,
+      "confidence": 0.88,
+      "field": {
+        "key": "footer",
+        "label": "底部说明",
+        "required": false,
+        "maxChars": 48,
+        "maxLines": 1
+      },
+      "style": {
+        "fontId": "sans",
+        "fontSize": 28,
+        "fontWeight": 700,
+        "color": "#6f2416",
+        "textAlign": "center"
+      }
+    }
+  ]
+}

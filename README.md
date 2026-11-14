@@ -41,6 +41,7 @@ AI 能力是可选的。没有配置 API 时，抠图、手工填写、海报生
 - Vue 3、TypeScript、Vite、Tailwind CSS；
 - 自研分图层海报编辑器；
 - LXGW WenKai 与 Noto Sans SC 字体。
+- 开源海报字体库：思源宋体、站酷小薇、站酷快乐体、站酷庆科黄油体、马善政毛笔楷书、龙藏体。
 
 ### 后端
 
@@ -72,7 +73,8 @@ SmartMerch/
 │   ├── training/                4 张参考海报及区域标注
 │   ├── API_CONTRACT.md          前后端接口字段说明
 │   ├── requirements.txt         Python 依赖
-│   └── test_pipeline.py         后端测试
+│   ├── test_pipeline.py         后端完整流程测试
+│   └── test_title_layout.py     快速标题排版测试
 ├── start-smartmerch.cmd         Windows 首次启动入口
 ├── start.ps1                    安装、构建和启动脚本
 ├── open-smartmerch.cmd          已完成安装后的快速启动入口
@@ -87,9 +89,9 @@ SmartMerch/
 - Windows 10/11；
 - Git；
 - Node.js 20 或更高版本；
-- Python 3.11 或 3.12。
+- Python 3.11 至 3.14。
 
-Python 3.14 可能与部分 `rembg/pymatting/numba` 版本存在兼容问题，新用户优先使用 Python 3.11 或 3.12。
+启动脚本会优先使用 3.14、3.13、3.12 或 3.11；当前依赖组合已在 Python 3.14 上完成测试。
 
 ## 六、新用户首次运行
 
@@ -117,7 +119,7 @@ Uvicorn running on http://127.0.0.1:54321
 
 首次启动器会自动完成以下工作：
 
-1. 检查 Node.js 20+ 和 Python 3.11/3.12；
+1. 检查 Node.js 20+ 和 Python 3.11–3.14；
 2. 在项目根目录创建独立的 `.venv`，避免依赖某台电脑上的固定 Python 路径；
 3. 安装后端依赖并构建前端；
 4. 询问是否配置可选 AI 服务，并把配置保存到不会上传的本地 `.env`；
@@ -215,7 +217,59 @@ VITE_API_BASE_URL=http://你的后端地址:端口
 
 详细字段见 [`backend/API_CONTRACT.md`](backend/API_CONTRACT.md)。启动后也可以访问 `/docs` 查看 FastAPI 自动接口文档。
 
-## 十、海报版式模型
+## 十、Railway + Supabase 部署
+
+仓库包含 `Dockerfile` 与 `railway.toml`，Railway 会构建前端、安装 Python
+后端、预下载 `rembg` 的 U2Net 模型，并通过平台提供的 `PORT` 对外服务。
+
+### 1. 创建 Supabase 数据表
+
+在 Supabase 项目的 SQL Editor 中执行：
+
+```text
+supabase/migrations/001_initial.sql
+```
+
+该迁移创建 `generation_jobs` 与 `feedback` 表并启用 RLS。浏览器没有直接写入
+权限；FastAPI 使用仅保存在服务端的 Secret Key 写入。
+
+### 2. 配置 Railway
+
+从 GitHub 仓库创建 Railway 服务后，在 Variables 中配置：
+
+```text
+AI_API_URL=视觉模型兼容接口地址
+AI_API_KEY=视觉模型密钥
+AI_MODEL=qwen3-vl-plus
+SUPABASE_URL=https://你的项目.supabase.co
+SUPABASE_SECRET_KEY=仅服务端使用的sb_secret密钥
+SMARTMERCH_RUNTIME_DIR=/data
+```
+
+不要手动设置 `PORT`，Railway 会自动提供。变量示例见
+`.env.production.example`，真实密钥不得提交到 GitHub。
+
+### 3. 添加持久卷
+
+为 Railway 服务添加 Volume，挂载路径设置为：
+
+```text
+/data
+```
+
+第一版使用该目录保存原图、抠图和生成海报，Supabase 保存任务元数据与反馈。
+没有配置 Supabase 时，本地和云端海报功能仍可运行，但健康检查中的
+`database` 会显示 `false`。
+
+部署成功后检查：
+
+```text
+https://你的Railway域名/api/health
+```
+
+应返回 `status: "ok"`；配置 Supabase 后还应返回 `database: true`。
+
+## 十一、海报版式模型
 
 当前参考版式来自 4 张烘焙商品海报：蓝莓乳酪贝果、海盐焦糖可露丽、开心果可颂和草莓奶油丹麦。
 
@@ -228,7 +282,7 @@ py train_layout_model.py
 
 4 张样本不足以可靠微调大型生成模型，因此当前使用归一化区域坐标、颜色角色和商品特征构建可解释的版式先验。后续增加海报样本和区域标注后可以重新训练，无需重写主生成流程。
 
-## 十一、测试与构建
+## 十二、测试与构建
 
 ```powershell
 # 前端类型检查
@@ -237,13 +291,16 @@ npm run typecheck
 # 前端正式构建
 npm run build
 
+# 只测试标题分行、字号和横向铺满
+npm run test:title
+
 # 后端测试
 py -m unittest discover -s backend -p "test*.py" -v
 ```
 
 当前测试覆盖透明图片处理、学习版式、模板适配、质量检测和视觉文案字段约束。可选的 poster-design 本地素材库未放入 `vendor` 时，对应测试会跳过。
 
-## 十二、常见问题
+## 十三、常见问题
 
 ### `尚未配置视觉AI`
 
@@ -259,7 +316,7 @@ py -m unittest discover -s backend -p "test*.py" -v
 
 ### 自动抠图失败
 
-建议使用 Python 3.11/3.12，并重新安装：
+建议使用 Python 3.11–3.14，并重新安装：
 
 ```powershell
 py -m pip install --upgrade "rembg[cpu]" pillow
@@ -271,7 +328,7 @@ py -m pip install --upgrade "rembg[cpu]" pillow
 - AI 推荐会发送商品图片给同一个 AI 模型。
 - 两项结果都只是建议，用户可以继续修改。
 
-## 十三、安全与上传说明
+## 十四、安全与上传说明
 
 - 不要提交真实 API Key。
 - 不要把 Key 写入 README、源码或截图。
@@ -279,7 +336,7 @@ py -m pip install --upgrade "rembg[cpu]" pillow
 - 视觉模型生成的商品属性和宣传文案必须人工核对，不得虚构品牌、容量、材质、价格或功效。
 - 如果希望普通用户免配置 API，需要部署统一后端，并把密钥保存在服务器环境变量中，而不是放进前端代码。
 
-## 十四、后续可扩展方向
+## 十五、后续可扩展方向
 
 - 增加更多行业和风格的版式训练样本；
 - 为不同商品类别训练版式选择器；
@@ -289,6 +346,6 @@ py -m pip install --upgrade "rembg[cpu]" pillow
 - 建立海报美学、信息完整性和商品一致性评价指标；
 - 将用户选择与人工修改记录用于后续排序模型训练。
 
-## 十五、项目定位
+## 十六、项目定位
 
 本项目重点不是单纯调用文生图模型，而是将图像处理、多模态理解、文本生成、可解释版式学习、前后端工程和可编辑输出组合为一套完整应用，适合作为程序设计综合实验项目，并可继续包装为软件类或人工智能应用类竞赛作品。

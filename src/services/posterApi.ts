@@ -52,7 +52,11 @@ export interface PosterElement {
   fontWeight?: number
   fontFamily?: string
   letterSpacing?: number
+  lineSpacings?: number[]
+  lineAlignments?: Array<'left' | 'center' | 'right' | 'justify'>
   lineHeight?: number
+  flipX?: boolean
+  flipY?: boolean
   color?: string
   textAlign?: 'left' | 'center' | 'right'
   verticalAlign?: 'top' | 'middle' | 'bottom'
@@ -73,6 +77,62 @@ export interface GenerateResult {
   jobId: string
   input: Record<string, unknown>
   candidates: PosterCandidate[]
+}
+
+export interface PosterObservation {
+  id: string
+  type: 'text' | 'image' | 'shape'
+  role?: string
+  roleCandidate?: string
+  text?: string
+  bbox: [number, number, number, number]
+  rotation?: number
+  zIndex?: number
+  opacity?: number
+  confidence?: number
+  assetId?: string
+  reviewRequired?: boolean
+  style?: Record<string, unknown>
+  field?: Record<string, unknown>
+  constraints?: Record<string, unknown>
+}
+
+export interface PosterAnalysis {
+  schemaVersion?: number
+  analysisId?: string
+  imageId?: string
+  canvas: { width: number; height: number }
+  style?: Record<string, unknown>
+  background?: Record<string, unknown>
+  observations: PosterObservation[]
+  sourceUrl?: string
+  generationPrompt?: string
+}
+
+export interface PosterTemplate {
+  schemaVersion: number
+  templateId: string
+  name: string
+  canvas: { width: number; height: number }
+  style: Record<string, unknown>
+  background: Record<string, unknown>
+  generationPrompt?: string
+  fields: Array<Record<string, unknown>>
+  layers: Array<Record<string, unknown>>
+  constraints: Array<Record<string, unknown>>
+  source?: Record<string, unknown>
+}
+
+export interface PosterTemplateSummary {
+  templateId: string
+  name: string
+  canvas: { width: number; height: number }
+  fieldCount: number
+  layerCount: number
+  previewUrl?: string
+  createdAt?: string
+  updatedAt?: string
+  generationPrompt?: string
 }
 
 async function parseResponse<T>(response: Response): Promise<T> {
@@ -108,6 +168,90 @@ export async function fetchStyleSpecs(): Promise<Record<string, StyleSpec>> {
     await fetch(`${API_BASE}/api/styles`)
   )
   return Object.fromEntries(payload.styles.map((item) => [item.key, item]))
+}
+
+export async function compilePosterTemplate(
+  analysis: PosterAnalysis,
+  options?: { templateId?: string; name?: string },
+): Promise<PosterTemplate> {
+  return parseResponse<PosterTemplate>(
+    await fetch(`${API_BASE}/api/templates/compile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        analysis,
+        templateId: options?.templateId,
+        name: options?.name,
+      }),
+    }),
+  )
+}
+
+export async function analyzeReferencePoster(file: File): Promise<PosterAnalysis> {
+  const body = new FormData()
+  body.append('image', file)
+  return parseResponse<PosterAnalysis>(
+    await fetch(`${API_BASE}/api/templates/analyze-reference`, {
+      method: 'POST',
+      body,
+    }),
+  )
+}
+
+export async function savePosterTemplate(template: PosterTemplate): Promise<PosterTemplate> {
+  return parseResponse<PosterTemplate>(
+    await fetch(`${API_BASE}/api/templates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ template }),
+    }),
+  )
+}
+
+export async function listPosterTemplates(): Promise<PosterTemplateSummary[]> {
+  const payload = await parseResponse<{ templates: PosterTemplateSummary[] }>(
+    await fetch(`${API_BASE}/api/templates`),
+  )
+  return payload.templates
+}
+
+export async function fetchPosterTemplate(templateId: string): Promise<PosterTemplate> {
+  return parseResponse<PosterTemplate>(
+    await fetch(`${API_BASE}/api/templates/${encodeURIComponent(templateId)}`),
+  )
+}
+
+export async function generateFromPosterTemplate(input: {
+  templateId: string
+  image: File
+  content: Record<string, string | string[]>
+}): Promise<{ jobId: string; document: PosterDocument; previewUrl: string }> {
+  const body = new FormData()
+  body.append('image', input.image)
+  body.append('content', JSON.stringify(input.content))
+  return parseResponse<{ jobId: string; document: PosterDocument; previewUrl: string }>(
+    await fetch(`${API_BASE}/api/templates/${encodeURIComponent(input.templateId)}/generate`, {
+      method: 'POST',
+      body,
+    }),
+  )
+}
+
+export async function instantiatePosterTemplate(input: {
+  template: PosterTemplate
+  content: Record<string, string | string[]>
+  productUrl: string
+  backgroundUrl?: string
+  productSize?: [number, number]
+  documentId?: string
+}): Promise<PosterDocument> {
+  return parseResponse<PosterDocument>(
+    await fetch(`${API_BASE}/api/templates/instantiate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+  )
 }
 
 export async function generateCopy(input: {

@@ -35,22 +35,21 @@ export interface Style {
 
 export const styles: Style[] = [
   {
-    key: 'editorial', name: '杂志编辑', en: 'Editorial',
-    desc: '暖纸底色、超大标题、手作感装饰（当前学习版式）',
+    key: 'editorial', name: '杂志', en: 'Editorial',
+    desc: '暖纸底色、超大标题与手作感装饰',
     available: true, bg: '#faf5ed', fg: '#2b2723',
   },
   { key: 'natural', name: '自然', en: 'Natural', desc: '清新、有机、贴近自然', available: false, bg: '#7b8a72', fg: '#f6f3ec' },
   {
-    key: 'minimal', name: '极简', en: 'Minimal',
-    desc: '大面积留白、圆形徽章、无装饰底纹',
-    available: true, bg: '#fbfbf8', fg: '#2b2723',
-  },
-  {
-    key: 'style2', name: '风格二', en: 'Style 2',
-    desc: '商品名、三条卖点、口号与介绍',
+    key: 'style2', name: '简约', en: 'Simple',
+    desc: '清晰留白、重点突出、信息层级简洁',
     available: true, bg: '#f5f5f5', fg: '#2b2723',
   },
-  { key: 'retro', name: '复古', en: 'Retro', desc: '怀旧、温暖、有年代感', available: false, bg: '#a87e52', fg: '#f6f3ec' },
+  {
+    key: 'retro', name: '复古', en: 'Retro',
+    desc: '复古杂志排版、斜切构图与商品轮廓纹样',
+    available: true, bg: '#f7f0df', fg: '#6f2416',
+  },
   { key: 'festive', name: '节日', en: 'Festive', desc: '喜庆、热闹、有氛围', available: false, bg: '#c08b62', fg: '#fff8ee' },
   { key: 'tech', name: '科技', en: 'Tech', desc: '简洁、未来、理性', available: false, bg: '#4e5c46', fg: '#f6f3ec' },
 ]

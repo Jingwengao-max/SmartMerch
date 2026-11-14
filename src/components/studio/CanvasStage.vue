@@ -33,7 +33,10 @@ function onDrop(e: DragEvent) {
 </script>
 
 <template>
-  <div class="flex h-full items-center justify-center overflow-y-auto p-8 md:p-12">
+  <div
+    class="flex h-full w-full justify-center overflow-x-hidden overflow-y-auto p-5 md:p-8"
+    :class="state.generated ? 'items-start' : 'items-center'"
+  >
     <!-- 步骤 0：上传 -->
     <div v-if="step === 0" class="w-full max-w-xl">
       <div

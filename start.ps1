@@ -9,7 +9,7 @@ $venvDir = Join-Path $PSScriptRoot ".venv"
 $venvPython = Join-Path $venvDir "Scripts\python.exe"
 $envFile = Join-Path $PSScriptRoot ".env"
 
-function Test-Python311Or312 {
+function Test-CompatiblePython {
     param([Parameter(Mandatory = $true)][string]$Executable)
 
     if (-not (Test-Path -LiteralPath $Executable -PathType Leaf)) {
@@ -17,7 +17,10 @@ function Test-Python311Or312 {
     }
     try {
         $version = & $Executable -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
-        return $LASTEXITCODE -eq 0 -and $version -in @("3.11", "3.12")
+        $match = [regex]::Match([string]$version, '^3\.(\d+)$')
+        return $LASTEXITCODE -eq 0 -and $match.Success -and
+            [int]$match.Groups[1].Value -ge 11 -and
+            [int]$match.Groups[1].Value -le 14
     } catch {
         return $false
     }
@@ -29,10 +32,10 @@ function Find-CompatiblePython {
     $pyCommands = @(Get-Command py -All -ErrorAction SilentlyContinue)
     foreach ($pyCommand in $pyCommands) {
         if (-not $pyCommand.Source) { continue }
-        foreach ($selector in @("-3.12", "-3.11")) {
+        foreach ($selector in @("-3.14", "-3.13", "-3.12", "-3.11")) {
             try {
                 $version = & $pyCommand.Source $selector -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
-                if ($LASTEXITCODE -eq 0 -and $version -in @("3.11", "3.12")) {
+                if ($LASTEXITCODE -eq 0 -and $version -in @("3.11", "3.12", "3.13", "3.14")) {
                     return [PSCustomObject]@{
                         Executable = $pyCommand.Source
                         PrefixArguments = @($selector)
@@ -49,10 +52,16 @@ function Find-CompatiblePython {
     }
 
     foreach ($pattern in @(
+        (Join-Path $env:LOCALAPPDATA "Programs\Python\Python314\python.exe"),
+        (Join-Path $env:LOCALAPPDATA "Programs\Python\Python313\python.exe"),
         (Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe"),
         (Join-Path $env:LOCALAPPDATA "Programs\Python\Python311\python.exe"),
+        (Join-Path $env:LOCALAPPDATA "Python\pythoncore-3.14-*\python.exe"),
+        (Join-Path $env:LOCALAPPDATA "Python\pythoncore-3.13-*\python.exe"),
         (Join-Path $env:LOCALAPPDATA "Python\pythoncore-3.12-*\python.exe"),
         (Join-Path $env:LOCALAPPDATA "Python\pythoncore-3.11-*\python.exe"),
+        (Join-Path $env:ProgramFiles "Python314\python.exe"),
+        (Join-Path $env:ProgramFiles "Python313\python.exe"),
         (Join-Path $env:ProgramFiles "Python312\python.exe"),
         (Join-Path $env:ProgramFiles "Python311\python.exe")
     )) {
@@ -68,7 +77,7 @@ function Find-CompatiblePython {
     }
 
     foreach ($candidate in ($candidates | Select-Object -Unique)) {
-        if (Test-Python311Or312 -Executable $candidate) {
+        if (Test-CompatiblePython -Executable $candidate) {
             return [PSCustomObject]@{
                 Executable = $candidate
                 PrefixArguments = @()
@@ -76,7 +85,7 @@ function Find-CompatiblePython {
         }
     }
 
-    throw "Python 3.11 or 3.12 was not found. Install Python 3.12 from https://www.python.org/downloads/windows/ and enable Add Python to PATH, then run start-smartmerch.cmd again. For a custom location, set SMARTMERCH_PYTHON to the full path of python.exe."
+    throw "Python 3.11 to 3.14 was not found. Install Python 3.12 from https://www.python.org/downloads/windows/ and enable Add Python to PATH, then run start-smartmerch.cmd again. For a custom location, set SMARTMERCH_PYTHON to the full path of python.exe."
 }
 
 function Assert-NodeEnvironment {
@@ -198,9 +207,22 @@ if ($Quick) {
     if ($LASTEXITCODE -ne 0) { throw "Failed to install backend dependencies." }
 
     Write-Host "[3/4] Installing and building the frontend..." -ForegroundColor Cyan
-    if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot "node_modules"))) {
+    $nodeModulesDir = Join-Path $PSScriptRoot "node_modules"
+    $npmStateFile = Join-Path $nodeModulesDir ".package-lock.json"
+    $packageLockFile = Join-Path $PSScriptRoot "package-lock.json"
+    $packageFile = Join-Path $PSScriptRoot "package.json"
+    $needsNpmInstall = -not (Test-Path -LiteralPath $nodeModulesDir -PathType Container) -or
+        -not (Test-Path -LiteralPath $npmStateFile -PathType Leaf)
+    if (-not $needsNpmInstall) {
+        $npmStateTime = (Get-Item -LiteralPath $npmStateFile).LastWriteTimeUtc
+        $needsNpmInstall = (Get-Item -LiteralPath $packageLockFile).LastWriteTimeUtc -gt $npmStateTime -or
+            (Get-Item -LiteralPath $packageFile).LastWriteTimeUtc -gt $npmStateTime
+    }
+    if ($needsNpmInstall) {
         & npm ci
         if ($LASTEXITCODE -ne 0) { throw "Failed to install frontend dependencies." }
+    } else {
+        Write-Host "Frontend dependencies are up to date." -ForegroundColor DarkGray
     }
     & npm run build
     if ($LASTEXITCODE -ne 0) { throw "Failed to build the frontend." }

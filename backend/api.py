@@ -14,7 +14,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageStat
 
 from ai_copywriter import (
     analyze_with_ai,
@@ -23,6 +23,7 @@ from ai_copywriter import (
     refine_with_ai,
     translate_with_ai,
 )
+from font_catalog import public_font_catalog
 from layout_engine import CANVAS, extract_product_features, load_font
 from learned_layout import (
     adaptive_palette,
@@ -31,6 +32,7 @@ from learned_layout import (
     load_model,
     load_model_for,
     load_models_for,
+    retro_palette,
 )
 from main import cutout
 from poster_design_adapter import normalize_template
@@ -40,8 +42,17 @@ from poster_design_source import (
     list_templates as list_poster_design_templates,
     load_template as load_poster_design_template,
 )
+from poster_analyzer import analyze_reference
 from quality_evaluator import evaluate_document
 from style_specs import STYLE_SPECS
+from cloud_persistence import cloud_persistence_configured, save_feedback, save_job
+from template_compiler import compile_analysis
+from template_instantiate import instantiate_template
+from template_store import (
+    list_templates as list_dynamic_templates,
+    load_template as load_dynamic_template,
+    save_template as save_dynamic_template,
+)
 
 from auth import router as auth_router
 from db import init_db
@@ -72,10 +83,13 @@ _load_local_env()
 ROOT = Path(__file__).resolve().parent
 WEB_DIR = ROOT / "web"
 FRONTEND_DIR = ROOT.parent / "dist"
-GENERATED_DIR = ROOT / "generated"
-DATA_DIR = ROOT / "data"
-GENERATED_DIR.mkdir(exist_ok=True)
-DATA_DIR.mkdir(exist_ok=True)
+RUNTIME_DIR = Path(os.getenv("SMARTMERCH_RUNTIME_DIR", str(ROOT))).expanduser().resolve()
+GENERATED_DIR = RUNTIME_DIR / "generated"
+DATA_DIR = RUNTIME_DIR / "data"
+DYNAMIC_TEMPLATE_DIR = GENERATED_DIR / "templates"
+GENERATED_DIR.mkdir(parents=True, exist_ok=True)
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+DYNAMIC_TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="AI商品海报工作室", version="1.0.0")
 app.add_middleware(
@@ -192,6 +206,16 @@ def _render(document: dict[str, Any]) -> Image.Image:
         if element["type"] == "image":
             with Image.open(_asset_path(element["src"])) as opened:
                 layer = opened.convert("RGBA").resize((width, height), Image.Resampling.LANCZOS)
+            if element.get("flipX"):
+                layer = layer.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+            if element.get("flipY"):
+                layer = layer.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+            if element.get("blur"):
+                layer = layer.filter(ImageFilter.GaussianBlur(float(element["blur"])))
+            opacity = max(0.0, min(1.0, float(element.get("opacity", 1))))
+            if opacity < 0.999:
+                alpha = layer.getchannel("A").point(lambda value: round(value * opacity))
+                layer.putalpha(alpha)
             if element.get("role") == "product":
                 shadow = Image.new("RGBA", size, (0, 0, 0, 0))
                 silhouette = Image.new("RGBA", layer.size, (40, 28, 34, 0))
@@ -261,6 +285,7 @@ def _render(document: dict[str, Any]) -> Image.Image:
             align = element.get("textAlign", "left")
             line_height = int(element.get("lineHeight") or round(font.size * 1.18))
             spacing = float(element.get("letterSpacing") or 0)
+            line_spacings = element.get("lineSpacings") or []
             color = element.get("color", "#222222")
             weight = int(element.get("fontWeight", 400))
             if weight >= 600:
@@ -278,9 +303,14 @@ def _render(document: dict[str, Any]) -> Image.Image:
             else:
                 text_y = y
             for line_index, line in enumerate(lines):
+                line_spacing = float(
+                    line_spacings[line_index]
+                    if line_index < len(line_spacings)
+                    else spacing
+                )
                 box = draw.textbbox((0, 0), line, font=font)
                 line_width = box[2] - box[0]
-                span = line_width + spacing * max(0, len(line) - 1)
+                span = line_width + line_spacing * max(0, len(line) - 1)
                 if align == "center":
                     line_x = x + max(0, (width - span) // 2)
                 elif align == "right":
@@ -288,14 +318,14 @@ def _render(document: dict[str, Any]) -> Image.Image:
                 else:
                     line_x = x
                 line_y = text_y + line_index * line_height - y
-                if spacing:
+                if line_spacing:
                     cursor = line_x - x
                     for character in line:
                         draw.text(
                             (cursor, line_y), character, font=font, fill=color,
                             stroke_width=stroke, stroke_fill=color,
                         )
-                        cursor += draw.textlength(character, font=font) + spacing
+                        cursor += draw.textlength(character, font=font) + line_spacing
                 else:
                     draw.text(
                         (line_x - x, line_y), line, font=font, fill=color,
@@ -331,6 +361,8 @@ def health():
     return {
         "status": "ok",
         "copywriterAi": ai_configured(),
+        "database": cloud_persistence_configured(),
+        "runtimeDirectory": str(RUNTIME_DIR),
         "aiModel": os.getenv("AI_MODEL", "qwen3-vl-plus"),
         "posterDesign": poster_design_available(),
         "layoutModel": layout_model["modelType"],
@@ -364,6 +396,12 @@ def list_styles():
     }
 
 
+@app.get("/api/fonts")
+def list_fonts():
+    """可供模板分析、文案字段和图层编辑器选择的字体。"""
+    return {"fonts": public_font_catalog()}
+
+
 @app.post("/api/cutout")
 async def cutout_product(image: UploadFile = File(...)):
     """SmartMerch 上传步骤使用：抠图并返回可直接预览的透明 PNG。"""
@@ -378,11 +416,18 @@ async def cutout_product(image: UploadFile = File(...)):
     try:
         product_path = job_dir / "product_cutout.png"
         product = cutout(source, product_path)
+        features = extract_product_features(product)
+        save_job({
+            "job_id": job_id,
+            "status": "cutout_ready",
+            "image_name": image.filename or "product.png",
+            "product_features": features,
+        })
         return {
             "jobId": job_id,
             "imageName": image.filename or "product.png",
             "cutoutUrl": _public(product_path),
-            "productFeatures": extract_product_features(product),
+            "productFeatures": features,
         }
     except Exception as error:
         raise HTTPException(500, f"自动抠图失败：{error}") from error
@@ -656,7 +701,7 @@ async def generate(
             paper = str(style_model.get("style", {}).get("paper", "#faf5ed"))
             background_path = job_dir / f"learned_background_{index}.jpg"
             build_style_background(
-                background_path, adaptive_palette(mean, paper), product, style_model,
+                background_path, (retro_palette(mean) if style == "retro" else adaptive_palette(mean, paper)), product, style_model,
                 style_key=style, variant_index=index,
             )
             document = create_document(
@@ -678,6 +723,15 @@ async def generate(
         (job_dir / "documents.json").write_text(
             json.dumps(documents, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+        save_job({
+            "job_id": job_id,
+            "status": "complete",
+            "style": style,
+            "image_name": image.filename or "product.png",
+            "product_features": features,
+            "candidate_count": len(documents),
+            "document": documents,
+        })
         return {
             "jobId": job_id,
             "input": {
@@ -713,6 +767,178 @@ def import_template(payload: dict[str, Any]):
         raise HTTPException(400, f"模板转换失败：{error}") from error
 
 
+@app.post("/api/templates/compile")
+def compile_poster_template(payload: dict[str, Any]):
+    analysis = payload.get("analysis", payload)
+    if not isinstance(analysis, dict):
+        raise HTTPException(400, "analysis 必须是 JSON 对象。")
+    try:
+        return compile_analysis(
+            analysis,
+            template_id=str(payload.get("templateId", "template_001")),
+            name=str(payload.get("name", "未命名模板")),
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/api/templates")
+def save_poster_template(payload: dict[str, Any]):
+    template = payload.get("template", payload)
+    if not isinstance(template, dict):
+        raise HTTPException(400, "template 必须是 JSON 对象。")
+    try:
+        return save_dynamic_template(
+            template,
+            DYNAMIC_TEMPLATE_DIR,
+            template_id=str(payload.get("templateId") or template.get("templateId") or ""),
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/api/templates")
+def dynamic_templates():
+    return {"templates": list_dynamic_templates(DYNAMIC_TEMPLATE_DIR)}
+
+
+@app.get("/api/templates/{template_id}")
+def dynamic_template(template_id: str):
+    try:
+        return load_dynamic_template(template_id, DYNAMIC_TEMPLATE_DIR)
+    except FileNotFoundError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/api/templates/{template_id}/generate")
+async def generate_from_dynamic_template(
+    template_id: str,
+    image: UploadFile = File(...),
+    content_json: str = Form("{}", alias="content"),
+):
+    suffix = Path(image.filename or "product.png").suffix.lower()
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
+        raise HTTPException(400, "请上传 PNG、JPG 或 WEBP 商品图片。")
+    try:
+        template = load_dynamic_template(template_id, DYNAMIC_TEMPLATE_DIR)
+        content = json.loads(content_json)
+        if not isinstance(content, dict):
+            raise ValueError("content 必须是 JSON 对象。")
+    except FileNotFoundError as error:
+        raise HTTPException(404, str(error)) from error
+    except (ValueError, json.JSONDecodeError) as error:
+        raise HTTPException(400, str(error)) from error
+
+    job_id = uuid.uuid4().hex[:12]
+    job_dir = GENERATED_DIR / "template_jobs" / job_id
+    job_dir.mkdir(parents=True)
+    source = job_dir / f"source{suffix}"
+    source.write_bytes(await image.read())
+    try:
+        product_path = job_dir / "product_cutout.png"
+        product = cutout(source, product_path)
+        width = int(template["canvas"]["width"])
+        height = int(template["canvas"]["height"])
+        background_path = job_dir / "background_clean.jpg"
+        background_url = str((template.get("background") or {}).get("sourceUrl", ""))
+        if background_url:
+            with Image.open(_asset_path(background_url)) as opened:
+                background = opened.convert("RGB").resize(
+                    (width, height), Image.Resampling.LANCZOS
+                )
+        else:
+            palette = (template.get("style") or {}).get("palette") or []
+            background = Image.new("RGB", (width, height), palette[0] if palette else "#f5f5f5")
+        draw = ImageDraw.Draw(background)
+        for mask in (template.get("background") or {}).get("cleanupMasks", []):
+            if not isinstance(mask, list) or len(mask) != 4:
+                continue
+            x = round(float(mask[0]) * width)
+            y = round(float(mask[1]) * height)
+            mask_width = max(1, round(float(mask[2]) * width))
+            mask_height = max(1, round(float(mask[3]) * height))
+            sample_top = max(0, y - 12)
+            sample_bottom = min(height, y + mask_height + 12)
+            sample = background.crop((max(0, x - 8), sample_top,
+                                      min(width, x + mask_width + 8), sample_bottom))
+            mean = tuple(round(value) for value in ImageStat.Stat(sample).mean)
+            draw.rectangle(
+                (max(0, x - 4), max(0, y - 4),
+                 min(width, x + mask_width + 4), min(height, y + mask_height + 4)),
+                fill=mean,
+            )
+        background.save(background_path, quality=94)
+        document = instantiate_template(
+            template,
+            content,
+            product_url=_public(product_path),
+            background_url=_public(background_path),
+            product_size=product.size,
+            document_id=f"template_{job_id}",
+        )
+        preview_path = job_dir / "preview.jpg"
+        _render(document).save(preview_path, quality=94)
+        return {
+            "jobId": job_id,
+            "document": document,
+            "previewUrl": _public(preview_path),
+        }
+    except Exception as error:
+        raise HTTPException(500, f"模板生成失败：{error}") from error
+
+
+@app.post("/api/templates/analyze-reference")
+async def analyze_reference_poster(image: UploadFile = File(...)):
+    suffix = Path(image.filename or "poster.png").suffix.lower()
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
+        raise HTTPException(400, "请上传 PNG、JPG 或 WEBP 参考海报。")
+    analysis_dir = GENERATED_DIR / "analysis"
+    analysis_dir.mkdir(exist_ok=True)
+    job_dir = analysis_dir / uuid.uuid4().hex[:12]
+    job_dir.mkdir(parents=True)
+    source = job_dir / f"source{suffix}"
+    source.write_bytes(await image.read())
+    try:
+        analysis = analyze_reference(source)
+        analysis["sourceUrl"] = _public(source)
+        return analysis
+    except Exception as error:
+        raise HTTPException(502, f"参考海报解析失败：{error}") from error
+
+
+@app.post("/api/templates/instantiate")
+def instantiate_poster_template(payload: dict[str, Any]):
+    template = payload.get("template")
+    content = payload.get("content")
+    if not isinstance(template, dict) or not isinstance(content, dict):
+        raise HTTPException(400, "需要 template 和 content 两个 JSON 对象。")
+    product_url = str(payload.get("productUrl", "")).strip()
+    if not product_url:
+        raise HTTPException(400, "productUrl 不能为空。")
+    product_size_payload = payload.get("productSize")
+    product_size = None
+    if product_size_payload is not None:
+        if (
+            not isinstance(product_size_payload, list)
+            or len(product_size_payload) != 2
+        ):
+            raise HTTPException(400, "productSize 必须是 [width, height]。")
+        product_size = (int(product_size_payload[0]), int(product_size_payload[1]))
+    try:
+        return instantiate_template(
+            template,
+            content,
+            product_url=product_url,
+            background_url=str(payload.get("backgroundUrl", "")),
+            product_size=product_size,
+            document_id=str(payload.get("documentId", "poster_001")),
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise HTTPException(400, f"模板实例化失败：{error}") from error
+
+
 @app.post("/api/render")
 def render_endpoint(document: dict[str, Any]):
     try:
@@ -729,6 +955,11 @@ def render_endpoint(document: dict[str, Any]):
 
 @app.post("/api/feedback")
 def feedback(payload: dict[str, Any]):
+    save_feedback({
+        "job_id": payload.get("jobId", ""),
+        "template_id": payload.get("templateId", ""),
+        "rating": payload.get("rating", 5),
+    })
     path = DATA_DIR / "web_feedback.csv"
     exists = path.exists()
     with path.open("a", encoding="utf-8-sig", newline="") as stream:
@@ -772,6 +1003,12 @@ if __name__ == "__main__":
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
             probe.bind(("127.0.0.1", 0))
             return int(probe.getsockname()[1])
+
+    cloud_port = os.getenv("PORT", "").strip()
+    if cloud_port:
+        print(f"SmartMerch listening on 0.0.0.0:{cloud_port}", flush=True)
+        uvicorn.run(app, host="0.0.0.0", port=int(cloud_port))
+        raise SystemExit(0)
 
     preview_port = find_free_port()
     preview_url = f"http://127.0.0.1:{preview_port}/studio"

@@ -11,6 +11,16 @@ const router = createRouter({
       name: 'studio',
       component: () => import('@/pages/StudioPage.vue'),
     },
+    {
+      path: '/template-import',
+      name: 'template-import',
+      component: () => import('@/pages/TemplateImportPage.vue'),
+    },
+    {
+      path: '/template-generate',
+      name: 'template-generate',
+      component: () => import('@/pages/TemplateGeneratePage.vue'),
+    },
   ],
   scrollBehavior(_to, _from, savedPosition) {
     return savedPosition ?? { top: 0 }

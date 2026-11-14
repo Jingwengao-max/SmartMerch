@@ -230,7 +230,7 @@ def translate_with_ai(chinese_name: str) -> str:
 
 def analyze_with_ai(path: Path, known: dict[str, Any] | None = None,
                     style: str = "editorial") -> dict[str, Any]:
-    """识别商品并生成适配当前学习版式的三组可编辑文案。"""
+    """识别商品并生成适配当前风格的三组可编辑文案。"""
     facts = known or {}
     lines = [f"- {key}：{value}" for key, value in facts.items() if value]
     known_text = "\n".join(lines) if lines else "- 用户尚未填写商品资料"
