@@ -1,15 +1,19 @@
 """SQLite 数据访问：连接与建表。
 
-用户与会话数据统一放在 backend/data/app.db，使用标准库 sqlite3，不引入第三方依赖。
-阶段四的作品存储也复用本模块。
+用户与会话数据统一放在 data/app.db（默认 backend/data/app.db，可经 SMARTMERCH_RUNTIME_DIR 指定），
+使用标准库 sqlite3，不引入第三方依赖。阶段四的作品存储也复用本模块。
 """
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-DATA_DIR = ROOT / "data"
+# 与 api.py 保持一致：云部署可通过 SMARTMERCH_RUNTIME_DIR 指定持久化目录，
+# 默认回退到 backend 目录，本地路径不变。
+RUNTIME_DIR = Path(os.getenv("SMARTMERCH_RUNTIME_DIR", str(ROOT))).expanduser().resolve()
+DATA_DIR = RUNTIME_DIR / "data"
 DB_PATH = DATA_DIR / "app.db"
 
 SCHEMA = """
