@@ -6,9 +6,21 @@ import {
   me as apiMe,
   type AuthUser,
 } from '@/services/authApi'
+import type { CopyVariant, PosterDocument } from '@/services/posterApi'
 
 export type AuthMode = 'login' | 'register'
 export type AuthStatus = 'initializing' | 'guest' | 'authed'
+
+/** 待保存的作品快照：未登录时暂存，登录成功后自动续存。 */
+export interface PendingSave {
+  document: PosterDocument
+  title?: string
+  style?: string | null
+  copy?: CopyVariant
+  workId: string | null
+  generation: number
+  docVersion: number
+}
 
 /**
  * 认证状态 —— 与 useStudio 一致的模块级 reactive 单例。
@@ -24,6 +36,7 @@ const state = reactive({
   modalMode: 'login' as AuthMode,
   user: null as AuthUser | null,
   status: 'initializing' as AuthStatus,
+  pendingSave: null as PendingSave | null,
 })
 
 export function useAuth() {
@@ -84,6 +97,14 @@ export function useAuth() {
     }
   }
 
+  /** 登录态失效（如接口 401）：清空本地用户态并重新引导登录，保留 pendingSave。 */
+  function requireLogin() {
+    state.user = null
+    state.status = 'guest'
+    state.modalMode = 'login'
+    state.modalOpen = true
+  }
+
   return {
     state,
     isAuthenticated,
@@ -95,5 +116,6 @@ export function useAuth() {
     register,
     logout,
     fetchCurrentUser,
+    requireLogin,
   }
 }

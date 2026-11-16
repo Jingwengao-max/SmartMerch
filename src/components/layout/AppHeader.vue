@@ -53,6 +53,7 @@ onBeforeUnmount(() => {
       <nav class="hidden items-center gap-8 font-mono text-[11px] uppercase tracking-[0.18em] text-ink-soft md:flex">
         <a href="#compare" class="transition-colors hover:text-ink">原图与成品</a>
         <a href="#works" class="transition-colors hover:text-ink">作品</a>
+        <RouterLink v-if="state.status === 'authed'" to="/works" class="transition-colors hover:text-ink">我的作品</RouterLink>
         <a href="#about" class="transition-colors hover:text-ink">关于</a>
         <RouterLink to="/template-import" class="transition-colors hover:text-ink">解析海报</RouterLink>
       </nav>
@@ -79,7 +80,6 @@ onBeforeUnmount(() => {
               v-if="menuOpen"
               class="absolute right-0 top-full mt-2 w-40 rounded-md border border-warm-300 bg-paper py-1 shadow-lg"
             >
-              <!-- 阶段五：在此补充「作品库」「个人中心」入口 -->
               <button
                 type="button"
                 class="block w-full px-4 py-2 text-left text-sm text-ink-soft transition-colors hover:bg-warm-100"

@@ -249,7 +249,7 @@ function onPick(e: Event) {
           开始生成
         </button>
         <div v-else-if="state.generated" class="flex gap-3">
-          <button type="button" class="btn-rect min-w-0 flex-1 whitespace-nowrap px-4" @click="startGenerate">重新生成</button>
+          <button v-if="!state.editingWorkId" type="button" class="btn-rect min-w-0 flex-1 whitespace-nowrap px-4" @click="startGenerate">重新生成</button>
           <button type="button" class="btn-cta min-w-0 flex-1 whitespace-nowrap px-4 text-[1.15rem]" @click="reset">重新开始</button>
         </div>
         <div v-else class="text-center text-sm text-ink-faint">创作中…</div>

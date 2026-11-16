@@ -2,10 +2,12 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { assetUrl, renderPoster, type PosterDocument, type PosterElement } from '@/services/posterApi'
 import { FONT_OPTIONS, fontStack, resolveFontId } from '@/data/fonts'
+import { useWorks } from '@/composables/useWorks'
 
 const props = defineProps<{ document: PosterDocument }>()
 const emit = defineEmits<{ 'update:document': [value: PosterDocument] }>()
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T
+const { state: worksState, isDirty, requestSave } = useWorks()
 
 type Guide = { axis: 'x' | 'y'; position: number }
 type GeometryField = { key: 'x' | 'y' | 'width' | 'height'; label: string }
@@ -357,6 +359,10 @@ function onKeydown(event: KeyboardEvent) {
   }
 }
 
+function save() {
+  requestSave(working.value)
+}
+
 async function download() {
   exporting.value = true
   error.value = ''
@@ -389,6 +395,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         <div class="flex gap-2">
           <button class="btn-rect px-3 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-35" :disabled="!history.length" title="撤销（Ctrl+Z）" @click="undo">撤销</button>
           <button class="btn-rect px-3 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-35" :disabled="!future.length" title="重做（Ctrl+Shift+Z）" @click="redo">重做</button>
+          <button
+            class="bg-sage px-3 py-1 text-xs text-paper rounded-md transition-colors hover:bg-moss disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="worksState.saving"
+            @click="save"
+          >
+            {{ worksState.saving ? '保存中…' : isDirty ? '保存作品' : '已保存 ✓' }}
+          </button>
           <button class="btn-cta px-3 py-1 text-xs" :disabled="exporting" @click="download">
             {{ exporting ? '导出中…' : '导出 PNG' }}
           </button>
@@ -510,6 +523,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         </div>
       </div>
       <p v-if="error" class="mt-2 text-sm text-red-700">{{ error }}</p>
+      <p v-if="worksState.error" class="mt-2 text-sm text-red-700">{{ worksState.error }}</p>
     </div>
 
     <aside class="border border-warm-300 bg-paper p-4">

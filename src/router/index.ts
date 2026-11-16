@@ -12,6 +12,11 @@ const router = createRouter({
       component: () => import('@/pages/StudioPage.vue'),
     },
     {
+      path: '/works',
+      name: 'works',
+      component: () => import('@/pages/WorksPage.vue'),
+    },
+    {
       path: '/template-import',
       name: 'template-import',
       component: () => import('@/pages/TemplateImportPage.vue'),
