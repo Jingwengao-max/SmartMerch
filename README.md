@@ -15,6 +15,8 @@
 7. 根据商品抠图轮廓生成同色简笔画装饰。
 8. 在分图层编辑器中调整文字、位置、尺寸和颜色。
 9. 导出 PNG，文件名为 `智绘商品-商品名称.png`。
+10. 注册、登录与退出登录（邮箱 + 密码，Session + HttpOnly Cookie）。
+11. 登录后可将作品保存到个人作品库，随时重新打开继续编辑或删除；未登录仍可完整生成与导出。
 
 AI 能力是可选的。没有配置 API 时，抠图、手工填写、海报生成、分层编辑和 PNG 导出仍可使用；英文名生成、AI 推荐和按意见改写不可用。
 
@@ -45,8 +47,10 @@ AI 能力是可选的。没有配置 API 时，抠图、手工填写、海报生
 
 ### 后端
 
-- Python、FastAPI、Pillow、rembg；
-- OpenAI 兼容 Chat Completions 接口。
+- Python、FastAPI、Pillow、rembg、jieba（中文分词）；
+- OpenAI 兼容 Chat Completions 接口；
+- SQLite（标准库 sqlite3，存储用户、会话与作品数据）；
+- 邮箱 + 密码认证（scrypt 哈希、服务端 Session + HttpOnly Cookie）。
 
 ### AI 模块
 
@@ -61,10 +65,18 @@ AI 能力是可选的。没有配置 API 时，抠图、手工填写、海报生
 SmartMerch/
 ├── src/                         Vue 前端源码
 │   ├── components/studio/       上传、文案、预览和图层编辑组件
+│   ├── components/auth/         登录/注册弹窗
+│   ├── components/works/        作品库卡片
 │   ├── composables/useStudio.ts 工作室状态与完整业务流程
-│   └── services/posterApi.ts    前后端请求封装
+│   ├── composables/useAuth.ts   认证状态与登录续存
+│   ├── composables/useWorks.ts  作品保存与作品库
+│   ├── pages/WorksPage.vue      个人作品库
+│   └── services/                前后端请求封装（posterApi / authApi / worksApi）
 ├── backend/
 │   ├── api.py                   FastAPI 接口、静态页面托管和 PNG 渲染
+│   ├── auth.py                  注册/登录/退出与 Session 认证
+│   ├── db.py                    SQLite 数据访问与建表
+│   ├── works.py                 作品保存、查询、更新、删除与资源持久化
 │   ├── ai_copywriter.py         文本翻译、视觉推荐和按意见改写
 │   ├── learned_layout.py        学习版式的实例化和自适应配色
 │   ├── layout_engine.py         字体、画布和商品特征提取
@@ -196,7 +208,7 @@ npm install
 npm run dev
 ```
 
-访问 `http://127.0.0.1:5173/studio`。开发环境默认调用 `http://127.0.0.1:8000`。需要修改时，在项目根目录创建 `.env.local`：
+访问 `http://localhost:5173/studio`。开发环境前端通过 Vite 代理把 `/api` 与静态资源（`/generated`、`/works-static`、`/poster-design-static`）转发到 `http://127.0.0.1:8000`（见 `vite.config.ts`）。如需指向其他后端地址，可在项目根目录创建 `.env.local`：
 
 ```text
 VITE_API_BASE_URL=http://你的后端地址:端口
@@ -214,6 +226,15 @@ VITE_API_BASE_URL=http://你的后端地址:端口
 | POST | `/api/generate` | 生成海报和分层文档 |
 | POST | `/api/render` | 将分层文档导出为 PNG |
 | POST | `/api/feedback` | 保存用户选择反馈 |
+| POST | `/api/auth/register` | 注册账号 |
+| POST | `/api/auth/login` | 登录 |
+| GET | `/api/auth/me` | 获取当前登录用户 |
+| POST | `/api/auth/logout` | 退出登录 |
+| POST | `/api/works` | 保存作品 |
+| GET | `/api/works` | 获取当前用户的作品列表 |
+| GET | `/api/works/{id}` | 获取单个作品详情 |
+| PUT | `/api/works/{id}` | 更新作品 |
+| DELETE | `/api/works/{id}` | 删除作品 |
 
 详细字段见 [`backend/API_CONTRACT.md`](backend/API_CONTRACT.md)。启动后也可以访问 `/docs` 查看 FastAPI 自动接口文档。
 
@@ -257,7 +278,7 @@ SMARTMERCH_RUNTIME_DIR=/data
 /data
 ```
 
-第一版使用该目录保存原图、抠图和生成海报，Supabase 保存任务元数据与反馈。
+该目录保存原图、抠图、生成海报、作品资源，以及本地 SQLite 数据库（用户、会话与作品）；Supabase 保存任务元数据与反馈。
 没有配置 Supabase 时，本地和云端海报功能仍可运行，但健康检查中的
 `database` 会显示 `false`。
 
@@ -332,7 +353,7 @@ py -m pip install --upgrade "rembg[cpu]" pillow
 
 - 不要提交真实 API Key。
 - 不要把 Key 写入 README、源码或截图。
-- `backend/generated/`、运行日志、模型缓存、用户反馈和第三方 `vendor/poster-design` 默认不上传。
+- `backend/generated/`、`backend/works/`、`backend/data/`、运行日志、模型缓存、用户反馈和第三方 `vendor/poster-design` 默认不上传。
 - 视觉模型生成的商品属性和宣传文案必须人工核对，不得虚构品牌、容量、材质、价格或功效。
 - 如果希望普通用户免配置 API，需要部署统一后端，并把密钥保存在服务器环境变量中，而不是放进前端代码。
 
@@ -341,7 +362,6 @@ py -m pip install --upgrade "rembg[cpu]" pillow
 - 增加更多行业和风格的版式训练样本；
 - 为不同商品类别训练版式选择器；
 - 增加模板检索与推荐；
-- 增加账号、项目保存和历史作品；
 - 部署统一后端，让体验者无需配置 API；
 - 建立海报美学、信息完整性和商品一致性评价指标；
 - 将用户选择与人工修改记录用于后续排序模型训练。
