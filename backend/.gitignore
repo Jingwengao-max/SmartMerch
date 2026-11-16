@@ -14,6 +14,7 @@ venv/
 
 # Runtime output and local data
 generated/
+works/
 output/
 data/*.csv
 data/*.json

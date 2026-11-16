@@ -14,6 +14,7 @@ import {
   type StyleField,
   type StyleSpec,
 } from '@/services/posterApi'
+import type { WorkDetail } from '@/services/worksApi'
 
 export const steps = [
   { no: '01', key: 'upload', title: '上传商品', en: 'Upload' },
@@ -81,6 +82,9 @@ const state = reactive({
   editorDocument: null as PosterDocument | null,
   selectedCandidateIndex: 0,
   error: '',
+  editingWorkId: null as string | null,
+  editGeneration: 0,
+  docVersion: 0,
 })
 
 const step = ref(0)
@@ -103,6 +107,9 @@ const canNext = computed(() => {
 async function setFile(file: File) {
   if (!file?.type.startsWith('image/')) return
   if (state.image?.startsWith('blob:')) URL.revokeObjectURL(state.image)
+  // 替换商品图 = 开始新创作：断开与旧作品的关联。
+  state.editingWorkId = null
+  state.editGeneration++
   Object.assign(state, {
     sourceFile: file,
     image: URL.createObjectURL(file),
@@ -139,15 +146,18 @@ function next() { if (canNext.value && step.value < 3) step.value++ }
 function back() { if (step.value > 0 && !state.generating) step.value-- }
 function goTo(index: number) { if (index >= 0 && index <= step.value && !state.generating) step.value = index }
 
-let specsLoaded = false
+let specsPromise: Promise<void> | null = null
 async function loadStyleSpecs() {
-  if (specsLoaded) return
-  specsLoaded = true
-  try {
-    state.styleSpecs = await fetchStyleSpecs()
-  } catch {
-    specsLoaded = false
-  }
+  if (specsPromise) return specsPromise
+  specsPromise = (async () => {
+    try {
+      state.styleSpecs = await fetchStyleSpecs()
+    } catch (error) {
+      specsPromise = null
+      throw error
+    }
+  })()
+  return specsPromise
 }
 
 function selectStyle(key: string) {
@@ -251,9 +261,13 @@ function selectCandidate(index: number) {
   if (index >= 0 && index < state.candidates.length) {
     state.selectedCandidateIndex = index
     state.editorDocument = JSON.parse(JSON.stringify(state.candidates[index])) as PosterDocument
+    state.docVersion++
   }
 }
-function updateEditorDocument(document: PosterDocument) { state.editorDocument = document }
+function updateEditorDocument(document: PosterDocument) {
+  state.editorDocument = document
+  state.docVersion++
+}
 
 async function startGenerate() {
   if (state.generating || !state.sourceFile || !state.style || !hasCopy.value) return
@@ -276,6 +290,7 @@ async function startGenerate() {
     state.editorDocument = state.candidates[0]
       ? JSON.parse(JSON.stringify(state.candidates[0])) as PosterDocument
       : null
+    state.docVersion++
     state.generated = true
     state.genStep = genSteps.length - 1
   } catch (error) {
@@ -288,6 +303,8 @@ async function startGenerate() {
 
 function reset() {
   if (state.image?.startsWith('blob:')) URL.revokeObjectURL(state.image)
+  state.editingWorkId = null
+  state.editGeneration++
   Object.assign(state, {
     sourceFile: null, image: null, imageName: '', cutoutUrl: '', jobId: '', removing: false,
     bgRemoved: false, analyzing: false, translating: false, refiningIndex: -1,
@@ -299,6 +316,55 @@ function reset() {
   loadStyleSpecs()
 }
 
+// ── 打开已保存作品 ─────────────────────────────────────────
+let pendingOpenWork: WorkDetail | null = null
+
+function setPendingOpenWork(detail: WorkDetail) {
+  pendingOpenWork = detail
+}
+
+function consumePendingOpenWork(): WorkDetail | null {
+  const detail = pendingOpenWork
+  pendingOpenWork = null
+  return detail
+}
+
+async function loadSavedWork(detail: WorkDetail) {
+  state.editGeneration++
+  state.editingWorkId = detail.id
+  const document = JSON.parse(JSON.stringify(detail.document)) as PosterDocument
+  state.editorDocument = document
+  state.generated = true
+  state.candidates = [{
+    ...document,
+    previewUrl: assetUrl(detail.previewUrl),
+    backgroundProvider: 'works',
+  }]
+  state.selectedCandidateIndex = 0
+  state.style = detail.meta?.style ?? null
+  state.copy = JSON.parse(JSON.stringify(detail.meta?.copy ?? {}))
+  state.sourceFile = null
+  state.image = null
+  state.imageName = ''
+  state.cutoutUrl = ''
+  state.jobId = ''
+  state.removing = false
+  state.bgRemoved = false
+  state.generating = false
+  state.genStep = -1
+  state.copywriting = []
+  state.aiWarning = ''
+  state.error = ''
+  state.docVersion++
+  step.value = 3
+  try {
+    await loadStyleSpecs()
+    state.fields = state.style ? state.styleSpecs[state.style]?.fields ?? [] : []
+  } catch {
+    state.fields = []
+  }
+}
+
 export function useStudio() {
   return {
     steps, genSteps, state, step, selectedCandidate, canNext, previewTitle, hasCopy,
@@ -306,5 +372,6 @@ export function useStudio() {
     setFile, next, back, goTo, applyCopywriting, generateCopySuggestions, translateName,
     refineCopywriting, selectCandidate, textValue, setText, listValue, setList,
     updateEditorDocument, startGenerate, reset,
+    loadSavedWork, setPendingOpenWork, consumePendingOpenWork,
   }
 }

@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import { useStudio } from '@/composables/useStudio'
+import { useWorks } from '@/composables/useWorks'
 import StudioHeader from '@/components/studio/StudioHeader.vue'
 import StageNav from '@/components/studio/StageNav.vue'
 import CanvasStage from '@/components/studio/CanvasStage.vue'
 import ControlPanel from '@/components/studio/ControlPanel.vue'
 
-const { setFile, reset } = useStudio()
+const { state, setFile, reset, consumePendingOpenWork, loadSavedWork } = useStudio()
+const works = useWorks()
 
 function onPaste(e: ClipboardEvent) {
   const item = Array.from(e.clipboardData?.items ?? []).find((i) => i.type.startsWith('image/'))
@@ -16,9 +19,19 @@ function onPaste(e: ClipboardEvent) {
 
 onMounted(() => {
   reset()
+  const pending = consumePendingOpenWork()
+  if (pending) void loadSavedWork(pending)
   window.addEventListener('paste', onPaste)
 })
 onBeforeUnmount(() => window.removeEventListener('paste', onPaste))
+
+// 有未保存修改时，离开工作室前确认。
+onBeforeRouteLeave(() => {
+  if (state.generated && state.editorDocument && works.isDirty.value) {
+    return window.confirm('当前有未保存的修改，确定离开吗？')
+  }
+  return true
+})
 </script>
 
 <template>

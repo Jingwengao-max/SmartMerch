@@ -1,7 +1,7 @@
 """SQLite 数据访问：连接与建表。
 
-用户与会话数据统一放在 data/app.db（默认 backend/data/app.db，可经 SMARTMERCH_RUNTIME_DIR 指定），
-使用标准库 sqlite3，不引入第三方依赖。阶段四的作品存储也复用本模块。
+用户、会话与作品数据统一放在 data/app.db（默认 backend/data/app.db，可经 SMARTMERCH_RUNTIME_DIR 指定），
+使用标准库 sqlite3，不引入第三方依赖。
 """
 from __future__ import annotations
 
@@ -14,6 +14,8 @@ ROOT = Path(__file__).resolve().parent
 # 默认回退到 backend 目录，本地路径不变。
 RUNTIME_DIR = Path(os.getenv("SMARTMERCH_RUNTIME_DIR", str(ROOT))).expanduser().resolve()
 DATA_DIR = RUNTIME_DIR / "data"
+GENERATED_DIR = RUNTIME_DIR / "generated"
+WORKS_DIR = RUNTIME_DIR / "works"
 DB_PATH = DATA_DIR / "app.db"
 
 SCHEMA = """
@@ -34,7 +36,27 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions (user_id);
+
+CREATE TABLE IF NOT EXISTS works (
+    id            TEXT NOT NULL PRIMARY KEY,
+    user_id       TEXT NOT NULL,
+    title         TEXT NOT NULL,
+    meta_json     TEXT NOT NULL DEFAULT '{}',
+    document_json TEXT NOT NULL,
+    preview_url   TEXT NOT NULL,
+    asset_version TEXT NOT NULL,
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_works_user_id ON works (user_id);
 """
+
+_REQUIRED_WORKS_COLUMNS = {
+    "id", "user_id", "title", "meta_json", "document_json",
+    "preview_url", "asset_version", "created_at", "updated_at",
+}
 
 
 def get_connection() -> sqlite3.Connection:
@@ -49,7 +71,22 @@ def get_connection() -> sqlite3.Connection:
     return connection
 
 
+def _ensure_works_columns(connection: sqlite3.Connection) -> None:
+    """works 是全新表；若发现已存在但缺列的历史结构，明确报错而非伪造迁移。"""
+    columns = {row["name"] for row in connection.execute("PRAGMA table_info(works)")}
+    if not columns:
+        return  # works 表刚由 SCHEMA 创建，结构完整
+    missing = _REQUIRED_WORKS_COLUMNS - columns
+    if missing:
+        raise RuntimeError(
+            f"works 表缺少必需字段 {sorted(missing)}，无法安全迁移，请人工处理。"
+        )
+
+
 def init_db() -> None:
-    # 显式初始化入口：打开一次连接即完成建表（get_connection 自带建表）。
+    # 显式初始化入口：打开一次连接即完成建表（get_connection 自带建表），并校验 works 结构。
     connection = get_connection()
-    connection.close()
+    try:
+        _ensure_works_columns(connection)
+    finally:
+        connection.close()

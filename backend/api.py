@@ -55,7 +55,8 @@ from template_store import (
 )
 
 from auth import router as auth_router
-from db import init_db
+from db import init_db, WORKS_DIR
+from works import router as works_router
 
 
 def _load_local_env() -> None:
@@ -90,6 +91,7 @@ DYNAMIC_TEMPLATE_DIR = GENERATED_DIR / "templates"
 GENERATED_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DYNAMIC_TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
+WORKS_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="AI商品海报工作室", version="1.0.0")
 app.add_middleware(
@@ -113,7 +115,9 @@ if POSTER_DESIGN_STATIC_DIR.is_dir():
     )
 
 # 认证接口必须在 SPA 兜底路由之前注册，避免 /api/auth/* 被兜底返回 HTML。
+app.mount("/works-static", StaticFiles(directory=WORKS_DIR), name="works-static")
 app.include_router(auth_router)
+app.include_router(works_router)
 init_db()
 
 
@@ -121,7 +125,14 @@ def _public(path: Path) -> str:
     return f"/generated/{path.relative_to(GENERATED_DIR).as_posix()}"
 
 
-def _asset_path(url: str) -> Path:
+def _asset_path(url: str, *, works_root: Path | None = None) -> Path:
+    # 作品持久化资源：默认 WORKS_DIR，保存时可指向 staging 目录用于渲染预览。
+    if url.startswith("/works-static/"):
+        base = works_root if works_root is not None else WORKS_DIR
+        resolved = (base / Path(url[len("/works-static/"):])).resolve()
+        if base.resolve() not in resolved.parents:
+            raise ValueError("非法资源路径。")
+        return resolved
     roots = {
         "/generated/": GENERATED_DIR,
         "/poster-design-static/": POSTER_DESIGN_STATIC_DIR,
@@ -190,12 +201,12 @@ def _document(job_id: str, index: int, template: dict[str, Any], candidate: dict
     return document
 
 
-def _render(document: dict[str, Any]) -> Image.Image:
+def _render(document: dict[str, Any], *, works_root: Path | None = None) -> Image.Image:
     canvas = document["canvas"]
     size = (int(canvas["width"]), int(canvas["height"]))
     background_url = canvas.get("backgroundImage")
     if background_url:
-        with Image.open(_asset_path(background_url)) as opened:
+        with Image.open(_asset_path(background_url, works_root=works_root)) as opened:
             poster = opened.convert("RGBA").resize(size, Image.Resampling.LANCZOS)
     else:
         poster = Image.new("RGBA", size, canvas.get("backgroundColor", "#f8f4f5"))
@@ -204,7 +215,7 @@ def _render(document: dict[str, Any]) -> Image.Image:
         x, y = round(float(element["x"])), round(float(element["y"]))
         width, height = max(1, round(float(element["width"]))), max(1, round(float(element["height"])))
         if element["type"] == "image":
-            with Image.open(_asset_path(element["src"])) as opened:
+            with Image.open(_asset_path(element["src"], works_root=works_root)) as opened:
                 layer = opened.convert("RGBA").resize((width, height), Image.Resampling.LANCZOS)
             if element.get("flipX"):
                 layer = layer.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
