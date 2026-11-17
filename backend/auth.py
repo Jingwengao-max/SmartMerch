@@ -145,6 +145,16 @@ def _cookie_secure() -> bool:
     return os.getenv("SMARTMERCH_COOKIE_SECURE", "0") == "1"
 
 
+def _allowed_origins() -> set[str]:
+    """Return local origins plus optional production origins from the environment."""
+    configured = os.getenv("SMARTMERCH_ALLOWED_ORIGINS", "")
+    return ALLOWED_ORIGINS | {
+        item.strip().rstrip("/")
+        for item in configured.split(",")
+        if item.strip()
+    }
+
+
 def _set_session_cookie(response: Response, token: str) -> None:
     response.set_cookie(
         key=COOKIE_NAME,
@@ -162,11 +172,20 @@ def _verify_origin(request: Request) -> None:
     if not origin:
         # 非浏览器客户端（curl 等）不带 Origin；浏览器跨站请求已被 SameSite=Lax 拦截。
         return
-    if origin in ALLOWED_ORIGINS:
+    origin = origin.rstrip("/")
+    if origin in _allowed_origins():
         return
-    scheme = request.url.scheme
+
+    # Cloud platforms terminate HTTPS at a reverse proxy, so the application
+    # may see an internal HTTP request. Compare the browser origin with both
+    # the direct request and the proxy-reported public scheme/host.
     host = request.headers.get("host") or request.url.netloc
-    if origin == f"{scheme}://{host}":
+    candidates = {f"{request.url.scheme}://{host}".rstrip("/")}
+    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
+    forwarded_host = request.headers.get("x-forwarded-host", "").split(",", 1)[0].strip()
+    if forwarded_proto:
+        candidates.add(f"{forwarded_proto}://{forwarded_host or host}".rstrip("/"))
+    if origin in candidates:
         return
     raise HTTPException(403, "非法请求来源。")
 
